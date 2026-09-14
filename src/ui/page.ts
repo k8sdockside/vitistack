@@ -132,12 +132,33 @@ export function writeHash(values: Record<string, string | null | undefined | fal
  * there -- a button pressed and not yet released, a field being typed in, text
  * being selected to copy -- and does it as soon as they are done. Returns the
  * function to call instead of redrawing.
+ *
+ * A redraw the user's own change asks for is never held back: picking a value
+ * in a select, or typing in a search box, is exactly what the redraw is for,
+ * and the control keeps the focus afterwards -- held back, the change would
+ * only show once the user clicked somewhere else. Such a redraw is recognised
+ * by happening inside the input or change event that caused it; a poll
+ * arriving while the control has the focus still waits.
  */
 export function politely(root: HTMLElement, redraw: () => void): () => void {
     let pressed = false;
     let owed = false;
+    let changing = false;
+
+    const change = (): void => {
+        changing = true;
+        // Cleared by a timer, not a microtask: the browser runs microtasks
+        // between one listener and the next of an event it dispatches itself
+        // -- a keystroke, a pick in a select -- so a microtask would clear this
+        // before the control's own handler asked for the redraw. A timer runs
+        // only once the whole dispatch is over.
+        setTimeout(() => (changing = false), 0);
+    };
+    root.addEventListener('input', change, true);
+    root.addEventListener('change', change, true);
 
     const busy = (): boolean => {
+        if (changing) return false;
         if (pressed) return true;
         const active = document.activeElement;
         if (active && root.contains(active) && /^(INPUT|SELECT|TEXTAREA)$/.test(active.tagName)) return true;
@@ -181,6 +202,8 @@ export function politely(root: HTMLElement, redraw: () => void): () => void {
 export function keepFocus(root: HTMLElement, redraw: () => void): void {
     const active = document.activeElement;
     const key = active instanceof HTMLElement && root.contains(active) ? active.dataset.focus : undefined;
+    // A text field redrawn while it is being typed in keeps its caret where it was.
+    const caret = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement ? { start: active.selectionStart, end: active.selectionEnd } : null;
     const scrolls = new Map<string, number>();
     root.querySelectorAll<HTMLElement>('[data-scroll]').forEach((n) => scrolls.set(n.dataset.scroll!, n.scrollTop));
     redraw();
@@ -191,6 +214,13 @@ export function keepFocus(root: HTMLElement, redraw: () => void): void {
     if (key) {
         const again = [...root.querySelectorAll<HTMLElement>('[data-focus]')].find((n) => n.dataset.focus === key);
         again?.focus({ preventScroll: true });
+        if (caret?.start != null && (again instanceof HTMLInputElement || again instanceof HTMLTextAreaElement)) {
+            try {
+                again.setSelectionRange(caret.start, caret.end ?? caret.start);
+            } catch {
+                // A field without a caret (a number input in some engines); focus is enough.
+            }
+        }
     }
 }
 

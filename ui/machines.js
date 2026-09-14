@@ -1683,7 +1683,15 @@
   function politely(root, redraw) {
     let pressed = false;
     let owed = false;
+    let changing = false;
+    const change = () => {
+      changing = true;
+      setTimeout(() => changing = false, 0);
+    };
+    root.addEventListener("input", change, true);
+    root.addEventListener("change", change, true);
     const busy = () => {
+      if (changing) return false;
       if (pressed) return true;
       const active = document.activeElement;
       if (active && root.contains(active) && /^(INPUT|SELECT|TEXTAREA)$/.test(active.tagName)) return true;
@@ -1718,6 +1726,7 @@
   function keepFocus(root, redraw) {
     const active = document.activeElement;
     const key = active instanceof HTMLElement && root.contains(active) ? active.dataset.focus : void 0;
+    const caret = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement ? { start: active.selectionStart, end: active.selectionEnd } : null;
     const scrolls = /* @__PURE__ */ new Map();
     root.querySelectorAll("[data-scroll]").forEach((n) => scrolls.set(n.dataset.scroll, n.scrollTop));
     redraw();
@@ -1728,6 +1737,12 @@
     if (key) {
       const again = [...root.querySelectorAll("[data-focus]")].find((n) => n.dataset.focus === key);
       again?.focus({ preventScroll: true });
+      if (caret?.start != null && (again instanceof HTMLInputElement || again instanceof HTMLTextAreaElement)) {
+        try {
+          again.setSelectionRange(caret.start, caret.end ?? caret.start);
+        } catch {
+        }
+      }
     }
   }
 
