@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Vitistack</title>
+        <link rel="stylesheet" href="vitistack.css" />
+        <!-- The bridge to the app. Served by K8s Dockside itself, always at this path. -->
+        <script src="/plugin-ui/_sdk/k8sdockside.js"></script>
+    </head>
+    <body class="page page-overview">
+        <p id="error" class="banner error" role="alert" hidden></p>
+        <main id="root">
+            <div class="loading"><span class="pulse"></span><span>Reading the supervisor…</span></div>
+        </main>
+        <!-- A classic script, not type="module": a sandboxed frame has an
+             opaque origin, so a module would be a cross-origin load.
+             Built from src/pages/overview.ts. -->
+        <script src="overview.js"></script>
+    </body>
+</html>

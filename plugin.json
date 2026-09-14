@@ -1,0 +1,113 @@
+{
+    "$schema": "https://raw.githubusercontent.com/rogerwesterbo/k8sdockside/main/docs/plugin.schema.json",
+    "id": "vitistack",
+    "name": "Vitistack",
+    "version": "1.0.0",
+    "minAppVersion": "0.0.19",
+    "tagline": "a supervisor cluster -- networks, clusters, machines and their VMs -- as one picture",
+    "icon": "layers",
+    "author": "Roger Westerbo",
+    "docs": "https://github.com/vitistack",
+    "links": [
+        { "label": "Vitistack", "url": "https://github.com/vitistack" },
+        { "label": "Cluster upgrades", "url": "https://github.com/vitistack/talos-operator/blob/main/docs/cluster-upgrades.md" },
+        { "label": "Talos support matrix", "url": "https://www.talos.dev/latest/introduction/support-matrix/" },
+        { "label": "Kubernetes releases", "url": "https://kubernetes.io/releases/" },
+        { "label": "Source", "url": "https://github.com/rogerwesterbo/k8sdockside-vitistack" }
+    ],
+    "description": "Vitistack turns a Kubernetes cluster into a supervisor for other Kubernetes clusters: a KubernetesCluster asks for a network namespace, control planes and node pools; talos-operator makes a Machine for each node; a machine provider -- KubeVirt through a KubevirtConfig, or Proxmox -- turns each Machine into a virtual machine. This plugin reads those objects and puts them back together.\n\nStart with the Overview: whether anything is failing, the whole chain from network to VM with a count and a health bar at every step, every machine as a honeycomb by cluster, and what needs you. Topology draws the supervisor as one graph, left to right -- network namespace, cluster, machine provider, where the machines run, the machines, their VMs -- and lights up the chains through whatever you select. Clusters and Machines & VMs are the working pages: every cluster as a card and every machine in a table, each one in full in a drawer, with its conditions, its network configuration and its events. Upgrades sets every cluster against the Kubernetes release calendar and the Talos support matrix, draws the path from where it is to the newest release -- Talos first wherever it has to be -- and sets talos-operator's upgrade.vitistack.io target annotations for you. Network shows each network namespace's address pool, how full it is, and every address handed out.\n\nEvery KubernetesCluster and Machine also gets a Vitistack panel in its detail view, and a failed upgrade gets Resume, Retry, Skip and Reset buttons on its action bar. The app shows every change and asks before it is made.",
+    "requires": [
+        { "kind": "crd:kubernetesclusters.vitistack.io", "label": "Kubernetes clusters" },
+        { "kind": "crd:machines.vitistack.io", "label": "Machines" },
+        { "kind": "crd:networknamespaces.vitistack.io", "label": "Network namespaces" },
+        { "kind": "crd:vitistacks.vitistack.io", "label": "Vitistacks", "optional": true },
+        { "kind": "crd:machineproviders.vitistack.io", "label": "Machine providers", "optional": true },
+        { "kind": "crd:kubernetesproviders.vitistack.io", "label": "Kubernetes providers", "optional": true },
+        { "kind": "crd:machineclasses.vitistack.io", "label": "Machine classes", "optional": true },
+        { "kind": "crd:networkconfigurations.vitistack.io", "label": "Network configurations", "optional": true },
+        { "kind": "crd:ipallocations.vitistack.io", "label": "IP allocations", "optional": true },
+        { "kind": "crd:kubevirtconfigs.vitistack.io", "label": "KubeVirt configs", "optional": true },
+        { "kind": "crd:proxmoxconfigs.vitistack.io", "label": "Proxmox configs", "optional": true },
+        { "kind": "crd:etcdbackups.vitistack.io", "label": "etcd backups", "optional": true },
+        { "kind": "crd:controlplanevirtualsharedips.vitistack.io", "label": "Control-plane VIPs", "optional": true },
+        { "kind": "crd:clusterstorages.vitistack.io", "label": "Cluster storage", "optional": true },
+        { "kind": "crd:clusterstorageclasses.vitistack.io", "label": "Cluster storage classes", "optional": true },
+        { "kind": "crd:virtualmachines.kubevirt.io", "label": "KubeVirt VMs in this cluster", "optional": true },
+        { "kind": "crd:virtualmachineinstances.kubevirt.io", "label": "KubeVirt VM instances in this cluster", "optional": true }
+    ],
+    "ui": {
+        "kinds": ["events"],
+        "write": true
+    },
+    "overview": { "entry": "overview.html" },
+    "views": [
+        { "id": "topology", "label": "Topology", "icon": "graph", "type": "custom", "entry": "topology.html" },
+        { "id": "clusters", "label": "Clusters", "icon": "server", "type": "custom", "entry": "clusters.html" },
+        { "id": "machines", "label": "Machines & VMs", "icon": "display", "type": "custom", "entry": "machines.html" },
+        { "id": "upgrades", "label": "Upgrades", "icon": "rocket", "type": "custom", "entry": "upgrades.html" },
+        { "id": "network", "label": "Network", "icon": "globe", "type": "custom", "entry": "network.html" },
+        { "id": "vitistacks", "label": "Vitistack", "icon": "layers", "kind": "crd:vitistacks.vitistack.io" },
+        { "id": "kubernetesclusters", "label": "KubernetesCluster", "icon": "server", "kind": "crd:kubernetesclusters.vitistack.io" },
+        { "id": "machine-objects", "label": "Machine", "icon": "chip", "kind": "crd:machines.vitistack.io" },
+        { "id": "machineproviders", "label": "MachineProvider", "icon": "box", "kind": "crd:machineproviders.vitistack.io" },
+        { "id": "kubernetesproviders", "label": "KubernetesProvider", "icon": "settings", "kind": "crd:kubernetesproviders.vitistack.io" },
+        { "id": "machineclasses", "label": "MachineClass", "icon": "scale", "kind": "crd:machineclasses.vitistack.io" },
+        { "id": "networknamespaces", "label": "NetworkNamespace", "icon": "globe", "kind": "crd:networknamespaces.vitistack.io" },
+        { "id": "networkconfigurations", "label": "NetworkConfiguration", "icon": "route", "kind": "crd:networkconfigurations.vitistack.io" },
+        { "id": "ipallocations", "label": "IPAllocation", "icon": "pin", "kind": "crd:ipallocations.vitistack.io" },
+        { "id": "kubevirtconfigs", "label": "KubevirtConfig", "icon": "display", "kind": "crd:kubevirtconfigs.vitistack.io" },
+        { "id": "proxmoxconfigs", "label": "ProxmoxConfig", "icon": "drive", "kind": "crd:proxmoxconfigs.vitistack.io" },
+        { "id": "etcdbackups", "label": "EtcdBackup", "icon": "save", "kind": "crd:etcdbackups.vitistack.io" },
+        { "id": "controlplanevirtualsharedips", "label": "ControlPlaneVirtualSharedIP", "icon": "gateway", "kind": "crd:controlplanevirtualsharedips.vitistack.io" },
+        { "id": "clusterstorages", "label": "ClusterStorage", "icon": "database", "kind": "crd:clusterstorages.vitistack.io" },
+        { "id": "clusterstorageclasses", "label": "ClusterStorageClass", "icon": "folder", "kind": "crd:clusterstorageclasses.vitistack.io" }
+    ],
+    "actions": [
+        {
+            "id": "upgrade-resume",
+            "label": "Resume upgrade",
+            "icon": "play",
+            "kind": "crd:kubernetesclusters.vitistack.io",
+            "confirm": "Ask talos-operator to resume the failed upgrade of {name}?",
+            "done": "Asked the operator to resume the upgrade of {name}",
+            "when": [{ "field": "status.phase", "in": ["UpgradeFailed"] }],
+            "request": { "type": "patch", "patch": { "metadata": { "annotations": { "upgrade.vitistack.io/resume": "true" } } } }
+        },
+        {
+            "id": "upgrade-retry-failed",
+            "label": "Retry failed nodes",
+            "icon": "refresh",
+            "kind": "crd:kubernetesclusters.vitistack.io",
+            "confirm": "Ask talos-operator to retry the nodes of {name} that failed to upgrade?",
+            "done": "Asked the operator to retry the failed nodes of {name}",
+            "when": [{ "field": "status.phase", "in": ["UpgradeFailed"] }],
+            "request": { "type": "patch", "patch": { "metadata": { "annotations": { "upgrade.vitistack.io/retry-failed-nodes": "true" } } } }
+        },
+        {
+            "id": "upgrade-skip-failed",
+            "label": "Skip failed nodes",
+            "icon": "forward",
+            "kind": "crd:kubernetesclusters.vitistack.io",
+            "confirm": "Ask talos-operator to skip the nodes of {name} that failed and carry on with the rest?",
+            "done": "Asked the operator to skip the failed nodes of {name}",
+            "when": [{ "field": "status.phase", "in": ["UpgradeFailed"] }],
+            "request": { "type": "patch", "patch": { "metadata": { "annotations": { "upgrade.vitistack.io/skip-failed-nodes": "true" } } } }
+        },
+        {
+            "id": "talos-reset-upgrade-state",
+            "label": "Reset Talos upgrade state",
+            "icon": "undo",
+            "tone": "danger",
+            "kind": "crd:kubernetesclusters.vitistack.io",
+            "confirm": "Clear the Talos upgrade bookkeeping of {name}? Use it when an upgrade is wedged: it unblocks the operator, and does not roll any node back.",
+            "done": "Asked the operator to reset the Talos upgrade state of {name}",
+            "when": [{ "field": "status.phase", "in": ["UpgradeFailed", "UpgradingTalos"] }],
+            "request": { "type": "patch", "patch": { "metadata": { "annotations": { "upgrade.vitistack.io/talos-reset-upgrade-state": "true" } } } }
+        }
+    ],
+    "sections": [
+        { "id": "vitistack-cluster", "label": "Vitistack", "kind": "crd:kubernetesclusters.vitistack.io", "entry": "cluster-panel.html", "height": 420 },
+        { "id": "vitistack-machine", "label": "Vitistack", "kind": "crd:machines.vitistack.io", "entry": "machine-panel.html", "height": 360 },
+        { "id": "vitistack-vm", "label": "Vitistack machine", "kind": "crd:virtualmachines.kubevirt.io", "entry": "machine-panel.html", "height": 120 }
+    ]
+}
