@@ -111,3 +111,42 @@ describe('pools and reading', () => {
         expect(snap.status.cluster?.state).toBe('ok');
     });
 });
+
+describe('what the operators leave behind', () => {
+    // kubevirt-operator writes failureReason/failureMessage when a VM has
+    // trouble and never clears them, and has been seen writing a condition of
+    // type "Unknown". A machine that runs again still carries both.
+    const stale = () => {
+        const s = fixtureSnapshot();
+        s.machines.push({
+            metadata: {
+                name: 'dev-1-wrk-0',
+                namespace: 'tenant-b',
+                creationTimestamp: new Date(NOW - 48 * 3_600_000).toISOString(),
+                labels: { 'vitistack.io/clusterid': 'dev-1-id', 'vitistack.io/node-role': 'worker' },
+            },
+            spec: { provider: 'proxmox' },
+            status: {
+                phase: 'Running',
+                state: 'Running',
+                ipAddresses: ['10.9.0.6'],
+                failureReason: 'VMIError',
+                failureMessage: 'VM startup failed - 1 error(s) found: [07:31:08] Stopped: The VirtualMachineInstance crashed.',
+                conditions: [{ type: 'Unknown', status: 'False', reason: 'Failed to get network configuration in current namespace', message: 'NetworkConfigurationError' }],
+            },
+        });
+        return buildModel(s, NOW);
+    };
+
+    it('does not call a running machine failed for a failure it has recovered from', () => {
+        const m = stale().machines.find((x) => x.name === 'dev-1-wrk-0')!;
+        expect(m.issues.map((i) => i.title)).toEqual([]);
+        expect(m.health).toBe('ok');
+    });
+
+    it('still calls a machine that is not running failed', () => {
+        const m = stale().machines.find((x) => x.name === 'prod-1-cp-2')!;
+        expect(m.issues.map((i) => `${i.tone}:${i.title}`)).toContain('error:Failed: disk full');
+        expect(m.health).toBe('error');
+    });
+});

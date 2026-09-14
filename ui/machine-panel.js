@@ -205,87 +205,6 @@
     }
   }
 
-  // src/model/snapshot.ts
-  var FIELD = {
-    vitistack: "vitistacks",
-    cluster: "clusters",
-    machine: "machines",
-    machineProvider: "machineProviders",
-    kubernetesProvider: "kubernetesProviders",
-    machineClass: "machineClasses",
-    networkNamespace: "networkNamespaces",
-    networkConfiguration: "networkConfigurations",
-    ipAllocation: "ipAllocations",
-    kubevirtConfig: "kubevirtConfigs",
-    proxmoxConfig: "proxmoxConfigs",
-    etcdBackup: "etcdBackups",
-    vip: "vips",
-    clusterStorage: "clusterStorages",
-    clusterStorageClass: "clusterStorageClasses",
-    vm: "vms",
-    vmi: "vmis"
-  };
-  function emptySnapshot(at = Date.now()) {
-    return {
-      at,
-      status: {},
-      vitistacks: [],
-      clusters: [],
-      machines: [],
-      machineProviders: [],
-      kubernetesProviders: [],
-      machineClasses: [],
-      networkNamespaces: [],
-      networkConfigurations: [],
-      ipAllocations: [],
-      kubevirtConfigs: [],
-      proxmoxConfigs: [],
-      etcdBackups: [],
-      vips: [],
-      clusterStorages: [],
-      clusterStorageClasses: [],
-      vms: [],
-      vmis: []
-    };
-  }
-  function isAbsent(message2) {
-    return /does not serve|not installed|could not find the requested resource|no matches for kind|the server doesn't have a resource type|is not served/i.test(message2);
-  }
-  function messageOf(err) {
-    return err instanceof Error ? err.message : String(err);
-  }
-  async function loadSnapshot(list, kinds = MODEL_KINDS, now = Date.now()) {
-    const snap = emptySnapshot(now);
-    await Promise.all(
-      kinds.map(async (key) => {
-        if (key === "events") return;
-        try {
-          const items = await list({ kind: KIND[key] });
-          snap[FIELD[key]] = items;
-          snap.status[key] = { state: "ok", error: "" };
-        } catch (err) {
-          const error = messageOf(err);
-          snap.status[key] = { state: isAbsent(error) ? "absent" : "error", error };
-        }
-      })
-    );
-    return snap;
-  }
-  function served(snap, key) {
-    return snap.status[key]?.state === "ok";
-  }
-  function eventTime(e) {
-    const t = e.lastTimestamp || e.eventTime || e.firstTimestamp || e.metadata.creationTimestamp || "";
-    const ms = Date.parse(t);
-    return Number.isNaN(ms) ? 0 : ms;
-  }
-  function eventsFor(events, kind, namespace, name) {
-    return events.filter((e) => {
-      const o = e.involvedObject;
-      return !!o && o.kind === kind && o.name === name && (o.namespace ?? "") === namespace;
-    });
-  }
-
   // src/model/version.ts
   var VERSION = /^\s*v?(\d+)\.(\d+)(?:\.(\d+))?(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?\s*$/;
   function parseVersion(text) {
@@ -342,294 +261,6 @@
       seen.add(key);
       return true;
     });
-  }
-
-  // src/ui/icons.ts
-  var ICONS = {
-    // The stack: a Vitistack is layers of infrastructure.
-    vitistack: ["M12 3.2 3.5 7.6 12 12l8.5-4.4z", "M3.5 12 12 16.4l8.5-4.4", "M3.5 16.4 12 20.8l8.5-4.4"],
-    network: ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z", "M3 12h18", "M12 3a14 14 0 0 1 0 18", "M12 3a14 14 0 0 0 0 18"],
-    cluster: ["M12 2.6l8.2 4.7v9.4L12 21.4l-8.2-4.7V7.3z", "M12 8.2l3.8 2.2v3.2L12 15.8l-3.8-2.2v-3.2z"],
-    provider: ["M4 4.5h16v6H4z", "M4 13.5h16v6H4z", "M7.5 7.5h.01", "M7.5 16.5h.01", "M11 7.5h5", "M11 16.5h5"],
-    backend: ["M3 7l9-4 9 4-9 4-9-4z", "M3 7v10l9 4 9-4V7", "M12 11v10"],
-    machine: ["M7 7h10v10H7z", "M10 10h4v4h-4z", "M9.5 3v4", "M14.5 3v4", "M9.5 17v4", "M14.5 17v4", "M3 9.5h4", "M3 14.5h4", "M17 9.5h4", "M17 14.5h4"],
-    vm: ["M3 4.5h18v11.5H3z", "M8 20h8", "M12 16v4", "M7 8.5l2.5 2-2.5 2", "M11.5 12.5h4"],
-    pool: ["M9 4h11v11", "M4 9h11v11H4z"],
-    kubernetes: ["M12 2.8l7.8 3.7 1.9 8.4-5.4 6.8H7.7l-5.4-6.8 1.9-8.4z", "M12 8.5v7", "M8.8 13.8 12 12l3.2 1.8", "M8.8 10.2 12 12l3.2-1.8"],
-    talos: ["M12 3v18", "M7 5.5c0 4 2 6.5 5 6.5s5-2.5 5-6.5", "M7 18.5c0-4 2-6.5 5-6.5s5 2.5 5 6.5"],
-    alert: ["M12 3.5l9.5 17h-19z", "M12 10v4", "M12 17.2h.01"],
-    failed: ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z", "M9 9l6 6", "M15 9l-6 6"],
-    check: ["M4.5 12.5l5 5L19.5 7"],
-    "check-circle": ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z", "M8 12.5l2.8 2.8L16.5 9.5"],
-    close: ["M6.5 6.5l11 11", "M17.5 6.5l-11 11"],
-    info: ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z", "M12 11v6", "M12 7.5h.01"],
-    clock: ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z", "M12 7v5l3.2 2"],
-    search: ["M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14z", "M20 20l-4-4"],
-    open: ["M14 4h6v6", "M20 4l-9 9", "M18 14v6H4V6h6"],
-    edit: ["M4 20h4L19 9l-4-4L4 16z", "M14 6l4 4"],
-    chevron: ["M9.5 6l6 6-6 6"],
-    "chevron-down": ["M6 9.5l6 6 6-6"],
-    "arrow-right": ["M5 12h14", "M13 6l6 6-6 6"],
-    upgrade: ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z", "M12 16.5V8", "M8.5 11.5 12 8l3.5 3.5"],
-    refresh: ["M20.5 12a8.5 8.5 0 1 1-2.6-6.1", "M20.5 4v5h-5"],
-    reset: ["M3.5 12a8.5 8.5 0 1 0 2.6-6.1", "M3.5 4v5h5"],
-    play: ["M7 4.5v15l12-7.5z"],
-    skip: ["M5 5l10 7-10 7z", "M19 5v14"],
-    fit: ["M4 9V4h5", "M20 9V4h-5", "M4 15v5h5", "M20 15v5h-5"],
-    plus: ["M12 5v14", "M5 12h14"],
-    minus: ["M5 12h14"],
-    filter: ["M4 5h16l-6 7.5V19l-4 1.5v-8z"],
-    graph: ["M6.5 9a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z", "M17.5 7a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z", "M17.5 22a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z", "M9 6.2l6-.7", "M8 8.8l8.3 8.9"],
-    ip: ["M3.5 6.5h17v11h-17z", "M8 9.5v5", "M11.5 14.5v-5h2.2a1.6 1.6 0 0 1 0 3.2h-2.2"],
-    cpu: ["M7 7h10v10H7z", "M9.5 3v4", "M14.5 3v4", "M9.5 17v4", "M14.5 17v4", "M3 9.5h4", "M3 14.5h4", "M17 9.5h4", "M17 14.5h4"],
-    memory: ["M3 7.5h18v9H3z", "M7 16.5v3", "M12 16.5v3", "M17 16.5v3", "M7 10.5v3", "M12 10.5v3", "M17 10.5v3"],
-    disk: ["M12 3c4.4 0 8 1.3 8 3s-3.6 3-8 3-8-1.3-8-3 3.6-3 8-3z", "M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6", "M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"],
-    node: ["M4 5h16v5H4z", "M4 14h16v5H4z", "M7.5 7.5h.01", "M7.5 16.5h.01"],
-    shield: ["M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z", "M8.5 12l2.5 2.5 4.5-5"],
-    tag: ["M3.5 12.2V4.5a1 1 0 0 1 1-1h7.7l8.3 8.3a1 1 0 0 1 0 1.4l-7.3 7.3a1 1 0 0 1-1.4 0z", "M8 8h.01"],
-    link: ["M10.5 13.5a4 4 0 0 0 5.7 0l2.3-2.3a4 4 0 0 0-5.7-5.7l-1.2 1.2", "M13.5 10.5a4 4 0 0 0-5.7 0l-2.3 2.3a4 4 0 0 0 5.7 5.7l1.2-1.2"],
-    book: ["M12 6.5c-1.5-1.3-3.8-2-7-2v13c3.2 0 5.5.7 7 2 1.5-1.3 3.8-2 7-2v-13c-3.2 0-5.5.7-7 2z", "M12 6.5v13"],
-    eye: ["M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z", "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"],
-    grid: ["M4 4h7v7H4z", "M13 4h7v7h-7z", "M4 13h7v7H4z", "M13 13h7v7h-7z"],
-    rows: ["M4 5h16", "M4 10h16", "M4 15h16", "M4 20h16"],
-    map: ["M9 4 3.5 6v14L9 18l6 2 5.5-2V4L15 6z", "M9 4v14", "M15 6v14"],
-    route: ["M6 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4z", "M18 9a2 2 0 1 0 0-4 2 2 0 0 0 0 4z", "M8 17h7.5a3 3 0 0 0 0-6h-7a3 3 0 0 1 0-6H16"],
-    pulse: ["M3 12h4l2.5-6 5 12 2.5-6h4"],
-    calendar: ["M4 6h16v14H4z", "M4 10h16", "M8.5 3.5v4", "M15.5 3.5v4"],
-    dot: ["M12 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2z"],
-    target: ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z", "M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8z", "M12 12h.01"],
-    layers: ["M12 3 3 8l9 5 9-5z", "M3 13l9 5 9-5"],
-    copy: ["M9 9h11v11H9z", "M5 15H4V4h11v1"]
-  };
-
-  // src/ui/dom.ts
-  var SVG_NS = "http://www.w3.org/2000/svg";
-  function el(tag, className = "", text) {
-    const node = document.createElement(tag);
-    if (className) node.className = className;
-    if (text !== void 0) node.textContent = String(text);
-    return node;
-  }
-  function add(parent, ...children) {
-    for (const child of children.flat()) {
-      if (child === null || child === void 0 || child === false) continue;
-      parent.appendChild(typeof child === "string" ? document.createTextNode(child) : child);
-    }
-    return parent;
-  }
-  function svg(tag, attrs = {}) {
-    const node = document.createElementNS(SVG_NS, tag);
-    for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, String(v));
-    return node;
-  }
-  function byId(id) {
-    const node = document.getElementById(id);
-    if (!node) throw new Error(`the page has no #${id}`);
-    return node;
-  }
-  function icon(name, className = "") {
-    const node = svg("svg", { viewBox: "0 0 24 24", class: "ico" + (className ? " " + className : ""), "aria-hidden": "true" });
-    for (const d of ICONS[name]) node.appendChild(svg("path", { d }));
-    return node;
-  }
-  function chip(text, tone = "", iconName, title) {
-    const node = el("span", "chip" + (tone ? " " + tone : ""));
-    if (iconName) node.appendChild(icon(iconName));
-    node.appendChild(el("span", "", text));
-    if (title) node.title = title;
-    return node;
-  }
-  function button(text, className, iconName, onClick) {
-    const node = el("button", className);
-    node.type = "button";
-    if (iconName) node.appendChild(icon(iconName));
-    if (text) node.appendChild(el("span", "", text));
-    node.addEventListener("click", onClick);
-    return node;
-  }
-  function linkButton(text, onClick, title, className = "") {
-    const node = el("button", "link" + (className ? " " + className : ""), text);
-    node.type = "button";
-    if (title) node.title = title;
-    node.addEventListener("click", (e) => {
-      e.stopPropagation();
-      onClick(e);
-    });
-    return node;
-  }
-
-  // src/ui/format.ts
-  function plural(n, one, many = one + "s") {
-    return `${n} ${n === 1 ? one : many}`;
-  }
-  function ago(ms, now = Date.now()) {
-    if (!ms) return "";
-    const d = Math.max(0, now - ms);
-    if (d < 1e4) return "just now";
-    if (d < 6e4) return `${Math.round(d / 1e3)}s ago`;
-    if (d < 36e5) return `${Math.round(d / 6e4)}m ago`;
-    if (d < 1728e5) return `${Math.round(d / 36e5)}h ago`;
-    return `${Math.round(d / 864e5)}d ago`;
-  }
-  function timeOf(text) {
-    const ms = Date.parse(text ?? "");
-    return Number.isNaN(ms) ? 0 : ms;
-  }
-  function percent(part, whole) {
-    if (!whole) return "0%";
-    const p = part / whole * 100;
-    return (p > 0 && p < 1 ? "<1" : String(Math.floor(p))) + "%";
-  }
-  var UNITS = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"];
-  function bytes(n) {
-    if (!Number.isFinite(n) || n <= 0) return "0 B";
-    let i = 0;
-    let v = n;
-    while (v >= 1024 && i < UNITS.length - 1) {
-      v /= 1024;
-      i++;
-    }
-    return `${v >= 10 || i === 0 ? Math.round(v) : v.toFixed(1).replace(/\.0$/, "")} ${UNITS[i]}`;
-  }
-  var SUFFIX = {
-    Ki: 1024,
-    Mi: 1024 ** 2,
-    Gi: 1024 ** 3,
-    Ti: 1024 ** 4,
-    Pi: 1024 ** 5,
-    Ei: 1024 ** 6,
-    k: 1e3,
-    K: 1e3,
-    M: 1e6,
-    G: 1e9,
-    T: 1e12,
-    P: 1e15,
-    E: 1e18,
-    m: 1e-3
-  };
-
-  // src/ui/page.ts
-  var sdk = k8sdockside;
-  function message(err) {
-    return err instanceof Error ? err.message : String(err);
-  }
-  var banner = {
-    show(err) {
-      const node = document.getElementById("error");
-      if (!node) return;
-      node.textContent = message(err);
-      node.hidden = false;
-    },
-    clear() {
-      const node = document.getElementById("error");
-      if (node) node.hidden = true;
-    }
-  };
-  function every(ms, fn, onError = banner.show) {
-    let stopped = false;
-    let timer;
-    const run = () => {
-      Promise.resolve().then(fn).catch((err) => {
-        if (!stopped) onError(err);
-      }).then(() => {
-        if (!stopped) timer = setTimeout(run, ms);
-      });
-    };
-    run();
-    return () => {
-      stopped = true;
-      clearTimeout(timer);
-    };
-  }
-  var store = {
-    async get(key) {
-      try {
-        return sdk.storage ? await sdk.storage.get(key) : null;
-      } catch {
-        return null;
-      }
-    },
-    async set(key, value) {
-      try {
-        if (sdk.storage) await sdk.storage.set(key, value);
-      } catch {
-      }
-    },
-    async remove(key) {
-      try {
-        if (sdk.storage) await sdk.storage.remove(key);
-      } catch {
-      }
-    }
-  };
-  function politely(root, redraw) {
-    let pressed = false;
-    let owed = false;
-    const busy = () => {
-      if (pressed) return true;
-      const active = document.activeElement;
-      if (active && root.contains(active) && /^(INPUT|SELECT|TEXTAREA)$/.test(active.tagName)) return true;
-      const selection = document.getSelection();
-      if (selection && !selection.isCollapsed && selection.anchorNode && root.contains(selection.anchorNode)) return true;
-      return false;
-    };
-    const settle = () => {
-      if (owed && !busy()) {
-        owed = false;
-        keepFocus(root, redraw);
-      }
-    };
-    root.addEventListener("pointerdown", () => pressed = true);
-    window.addEventListener("pointerup", () => {
-      pressed = false;
-      setTimeout(settle, 0);
-    });
-    window.addEventListener("pointercancel", () => {
-      pressed = false;
-      settle();
-    });
-    root.addEventListener("focusout", () => setTimeout(settle, 0));
-    document.addEventListener("selectionchange", () => {
-      if (owed) setTimeout(settle, 0);
-    });
-    return () => {
-      if (busy()) owed = true;
-      else keepFocus(root, redraw);
-    };
-  }
-  function keepFocus(root, redraw) {
-    const active = document.activeElement;
-    const key = active instanceof HTMLElement && root.contains(active) ? active.dataset.focus : void 0;
-    const scrolls = /* @__PURE__ */ new Map();
-    root.querySelectorAll("[data-scroll]").forEach((n) => scrolls.set(n.dataset.scroll, n.scrollTop));
-    redraw();
-    root.querySelectorAll("[data-scroll]").forEach((n) => {
-      const top = scrolls.get(n.dataset.scroll);
-      if (top) n.scrollTop = top;
-    });
-    if (key) {
-      const again = [...root.querySelectorAll("[data-focus]")].find((n) => n.dataset.focus === key);
-      again?.focus({ preventScroll: true });
-    }
-  }
-
-  // src/ui/nav.ts
-  var FOCUS_KEY = "focus";
-  function openInApp(ref) {
-    if (!ref) return;
-    sdk.open({ kind: ref.kind, namespace: ref.namespace || void 0, name: ref.name }).catch(banner.show);
-  }
-  function editInApp(ref) {
-    if (!ref) return;
-    sdk.edit({ kind: ref.kind, namespace: ref.namespace || void 0, name: ref.name }).catch(banner.show);
-  }
-  async function goTo(view, focus) {
-    if (focus) await store.set(FOCUS_KEY, { view, id: focus, at: Date.now() });
-    try {
-      await sdk.openView(view);
-    } catch (err) {
-      banner.show(err);
-    }
   }
 
   // src/model/catalogue.ts
@@ -973,7 +604,7 @@
   };
   function conditionFindings(c, view, area, conditions, skipTypes = /* @__PURE__ */ new Set()) {
     for (const cond of conditions ?? []) {
-      if (skipTypes.has(cond.type ?? "")) continue;
+      if (!cond.type || cond.type === "Unknown" || skipTypes.has(cond.type)) continue;
       const tone = conditionTone(cond);
       if (tone !== "error" && tone !== "warn") continue;
       const title = `${cond.type ?? "Condition"}${cond.reason ? ": " + splitWords(cond.reason) : ""}`;
@@ -1113,11 +744,14 @@
     if (!m) return null;
     return { major: Number(m[1]), minor: Number(m[2]), patch: Number(m[3] ?? 0), hasPatch: m[3] !== void 0, pre: "", raw: text };
   }
+  function machineRunning(m) {
+    return /^running$/i.test(m.phase) && (!m.state || /^running$/i.test(m.state));
+  }
   function machineFindings(c, model, m) {
     const now = model.now;
     const st = m.obj.status ?? {};
     const phase = m.phase;
-    if (st.failureReason || st.failureMessage) {
+    if (!machineRunning(m) && (st.failureReason || st.failureMessage)) {
       c.add(m, "machine", "error", "failure", st.failureReason ? `Failed: ${splitWords(st.failureReason)}` : "Machine failed", st.failureMessage ?? st.message ?? "");
     } else if (phaseTone(phase) === "error") {
       c.add(m, "machine", "error", "phase", `Machine ${phase.toLowerCase()}`, st.message ?? "");
@@ -1236,6 +870,375 @@
   var AREA_ORDER = { cluster: 0, upgrade: 1, machine: 2, vm: 3, network: 4, provider: 5, backup: 6, version: 7, vitistack: 8 };
   function compareIssues(a, b) {
     return TONE_ORDER[a.tone] - TONE_ORDER[b.tone] || AREA_ORDER[a.area] - AREA_ORDER[b.area] || a.subject.localeCompare(b.subject) || a.title.localeCompare(b.title);
+  }
+
+  // src/model/snapshot.ts
+  var FIELD = {
+    vitistack: "vitistacks",
+    cluster: "clusters",
+    machine: "machines",
+    machineProvider: "machineProviders",
+    kubernetesProvider: "kubernetesProviders",
+    machineClass: "machineClasses",
+    networkNamespace: "networkNamespaces",
+    networkConfiguration: "networkConfigurations",
+    ipAllocation: "ipAllocations",
+    kubevirtConfig: "kubevirtConfigs",
+    proxmoxConfig: "proxmoxConfigs",
+    etcdBackup: "etcdBackups",
+    vip: "vips",
+    clusterStorage: "clusterStorages",
+    clusterStorageClass: "clusterStorageClasses",
+    vm: "vms",
+    vmi: "vmis"
+  };
+  function emptySnapshot(at = Date.now()) {
+    return {
+      at,
+      status: {},
+      vitistacks: [],
+      clusters: [],
+      machines: [],
+      machineProviders: [],
+      kubernetesProviders: [],
+      machineClasses: [],
+      networkNamespaces: [],
+      networkConfigurations: [],
+      ipAllocations: [],
+      kubevirtConfigs: [],
+      proxmoxConfigs: [],
+      etcdBackups: [],
+      vips: [],
+      clusterStorages: [],
+      clusterStorageClasses: [],
+      vms: [],
+      vmis: []
+    };
+  }
+  function isAbsent(message2) {
+    return /does not serve|not installed|could not find the requested resource|no matches for kind|the server doesn't have a resource type|is not served/i.test(message2);
+  }
+  function messageOf(err) {
+    return err instanceof Error ? err.message : String(err);
+  }
+  async function loadSnapshot(list, kinds = MODEL_KINDS, now = Date.now()) {
+    const snap = emptySnapshot(now);
+    await Promise.all(
+      kinds.map(async (key) => {
+        if (key === "events") return;
+        try {
+          const items = await list({ kind: KIND[key] });
+          snap[FIELD[key]] = items;
+          snap.status[key] = { state: "ok", error: "" };
+        } catch (err) {
+          const error = messageOf(err);
+          snap.status[key] = { state: isAbsent(error) ? "absent" : "error", error };
+        }
+      })
+    );
+    return snap;
+  }
+  function served(snap, key) {
+    return snap.status[key]?.state === "ok";
+  }
+  function eventTime(e) {
+    const t = e.lastTimestamp || e.eventTime || e.firstTimestamp || e.metadata.creationTimestamp || "";
+    const ms = Date.parse(t);
+    return Number.isNaN(ms) ? 0 : ms;
+  }
+  function eventsFor(events, kind, namespace, name) {
+    return events.filter((e) => {
+      const o = e.involvedObject;
+      return !!o && o.kind === kind && o.name === name && (o.namespace ?? "") === namespace;
+    });
+  }
+
+  // src/ui/icons.ts
+  var ICONS = {
+    // The stack: a Vitistack is layers of infrastructure.
+    vitistack: ["M12 3.2 3.5 7.6 12 12l8.5-4.4z", "M3.5 12 12 16.4l8.5-4.4", "M3.5 16.4 12 20.8l8.5-4.4"],
+    network: ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z", "M3 12h18", "M12 3a14 14 0 0 1 0 18", "M12 3a14 14 0 0 0 0 18"],
+    cluster: ["M12 2.6l8.2 4.7v9.4L12 21.4l-8.2-4.7V7.3z", "M12 8.2l3.8 2.2v3.2L12 15.8l-3.8-2.2v-3.2z"],
+    provider: ["M4 4.5h16v6H4z", "M4 13.5h16v6H4z", "M7.5 7.5h.01", "M7.5 16.5h.01", "M11 7.5h5", "M11 16.5h5"],
+    backend: ["M3 7l9-4 9 4-9 4-9-4z", "M3 7v10l9 4 9-4V7", "M12 11v10"],
+    machine: ["M7 7h10v10H7z", "M10 10h4v4h-4z", "M9.5 3v4", "M14.5 3v4", "M9.5 17v4", "M14.5 17v4", "M3 9.5h4", "M3 14.5h4", "M17 9.5h4", "M17 14.5h4"],
+    vm: ["M3 4.5h18v11.5H3z", "M8 20h8", "M12 16v4", "M7 8.5l2.5 2-2.5 2", "M11.5 12.5h4"],
+    pool: ["M9 4h11v11", "M4 9h11v11H4z"],
+    kubernetes: ["M12 2.8l7.8 3.7 1.9 8.4-5.4 6.8H7.7l-5.4-6.8 1.9-8.4z", "M12 8.5v7", "M8.8 13.8 12 12l3.2 1.8", "M8.8 10.2 12 12l3.2-1.8"],
+    talos: ["M12 3v18", "M7 5.5c0 4 2 6.5 5 6.5s5-2.5 5-6.5", "M7 18.5c0-4 2-6.5 5-6.5s5 2.5 5 6.5"],
+    alert: ["M12 3.5l9.5 17h-19z", "M12 10v4", "M12 17.2h.01"],
+    failed: ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z", "M9 9l6 6", "M15 9l-6 6"],
+    check: ["M4.5 12.5l5 5L19.5 7"],
+    "check-circle": ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z", "M8 12.5l2.8 2.8L16.5 9.5"],
+    close: ["M6.5 6.5l11 11", "M17.5 6.5l-11 11"],
+    info: ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z", "M12 11v6", "M12 7.5h.01"],
+    clock: ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z", "M12 7v5l3.2 2"],
+    search: ["M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14z", "M20 20l-4-4"],
+    open: ["M14 4h6v6", "M20 4l-9 9", "M18 14v6H4V6h6"],
+    edit: ["M4 20h4L19 9l-4-4L4 16z", "M14 6l4 4"],
+    chevron: ["M9.5 6l6 6-6 6"],
+    "chevron-down": ["M6 9.5l6 6 6-6"],
+    "arrow-right": ["M5 12h14", "M13 6l6 6-6 6"],
+    upgrade: ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z", "M12 16.5V8", "M8.5 11.5 12 8l3.5 3.5"],
+    refresh: ["M20.5 12a8.5 8.5 0 1 1-2.6-6.1", "M20.5 4v5h-5"],
+    reset: ["M3.5 12a8.5 8.5 0 1 0 2.6-6.1", "M3.5 4v5h5"],
+    play: ["M7 4.5v15l12-7.5z"],
+    skip: ["M5 5l10 7-10 7z", "M19 5v14"],
+    fit: ["M4 9V4h5", "M20 9V4h-5", "M4 15v5h5", "M20 15v5h-5"],
+    plus: ["M12 5v14", "M5 12h14"],
+    minus: ["M5 12h14"],
+    filter: ["M4 5h16l-6 7.5V19l-4 1.5v-8z"],
+    graph: ["M6.5 9a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z", "M17.5 7a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z", "M17.5 22a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z", "M9 6.2l6-.7", "M8 8.8l8.3 8.9"],
+    ip: ["M3.5 6.5h17v11h-17z", "M8 9.5v5", "M11.5 14.5v-5h2.2a1.6 1.6 0 0 1 0 3.2h-2.2"],
+    cpu: ["M7 7h10v10H7z", "M9.5 3v4", "M14.5 3v4", "M9.5 17v4", "M14.5 17v4", "M3 9.5h4", "M3 14.5h4", "M17 9.5h4", "M17 14.5h4"],
+    memory: ["M3 7.5h18v9H3z", "M7 16.5v3", "M12 16.5v3", "M17 16.5v3", "M7 10.5v3", "M12 10.5v3", "M17 10.5v3"],
+    disk: ["M12 3c4.4 0 8 1.3 8 3s-3.6 3-8 3-8-1.3-8-3 3.6-3 8-3z", "M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6", "M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"],
+    node: ["M4 5h16v5H4z", "M4 14h16v5H4z", "M7.5 7.5h.01", "M7.5 16.5h.01"],
+    shield: ["M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z", "M8.5 12l2.5 2.5 4.5-5"],
+    tag: ["M3.5 12.2V4.5a1 1 0 0 1 1-1h7.7l8.3 8.3a1 1 0 0 1 0 1.4l-7.3 7.3a1 1 0 0 1-1.4 0z", "M8 8h.01"],
+    link: ["M10.5 13.5a4 4 0 0 0 5.7 0l2.3-2.3a4 4 0 0 0-5.7-5.7l-1.2 1.2", "M13.5 10.5a4 4 0 0 0-5.7 0l-2.3 2.3a4 4 0 0 0 5.7 5.7l1.2-1.2"],
+    book: ["M12 6.5c-1.5-1.3-3.8-2-7-2v13c3.2 0 5.5.7 7 2 1.5-1.3 3.8-2 7-2v-13c-3.2 0-5.5.7-7 2z", "M12 6.5v13"],
+    eye: ["M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z", "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"],
+    grid: ["M4 4h7v7H4z", "M13 4h7v7h-7z", "M4 13h7v7H4z", "M13 13h7v7h-7z"],
+    rows: ["M4 5h16", "M4 10h16", "M4 15h16", "M4 20h16"],
+    map: ["M9 4 3.5 6v14L9 18l6 2 5.5-2V4L15 6z", "M9 4v14", "M15 6v14"],
+    route: ["M6 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4z", "M18 9a2 2 0 1 0 0-4 2 2 0 0 0 0 4z", "M8 17h7.5a3 3 0 0 0 0-6h-7a3 3 0 0 1 0-6H16"],
+    pulse: ["M3 12h4l2.5-6 5 12 2.5-6h4"],
+    calendar: ["M4 6h16v14H4z", "M4 10h16", "M8.5 3.5v4", "M15.5 3.5v4"],
+    dot: ["M12 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2z"],
+    target: ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z", "M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8z", "M12 12h.01"],
+    layers: ["M12 3 3 8l9 5 9-5z", "M3 13l9 5 9-5"],
+    copy: ["M9 9h11v11H9z", "M5 15H4V4h11v1"]
+  };
+
+  // src/ui/dom.ts
+  var SVG_NS = "http://www.w3.org/2000/svg";
+  function el(tag, className = "", text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== void 0) node.textContent = String(text);
+    return node;
+  }
+  function add(parent, ...children) {
+    for (const child of children.flat()) {
+      if (child === null || child === void 0 || child === false) continue;
+      parent.appendChild(typeof child === "string" ? document.createTextNode(child) : child);
+    }
+    return parent;
+  }
+  function svg(tag, attrs = {}) {
+    const node = document.createElementNS(SVG_NS, tag);
+    for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, String(v));
+    return node;
+  }
+  function byId(id) {
+    const node = document.getElementById(id);
+    if (!node) throw new Error(`the page has no #${id}`);
+    return node;
+  }
+  function icon(name, className = "") {
+    const node = svg("svg", { viewBox: "0 0 24 24", class: "ico" + (className ? " " + className : ""), "aria-hidden": "true" });
+    for (const d of ICONS[name]) node.appendChild(svg("path", { d }));
+    return node;
+  }
+  function chip(text, tone = "", iconName, title) {
+    const node = el("span", "chip" + (tone ? " " + tone : ""));
+    if (iconName) node.appendChild(icon(iconName));
+    node.appendChild(el("span", "", text));
+    if (title) node.title = title;
+    return node;
+  }
+  function button(text, className, iconName, onClick) {
+    const node = el("button", className);
+    node.type = "button";
+    if (iconName) node.appendChild(icon(iconName));
+    if (text) node.appendChild(el("span", "", text));
+    node.addEventListener("click", onClick);
+    return node;
+  }
+  function linkButton(text, onClick, title, className = "") {
+    const node = el("button", "link" + (className ? " " + className : ""), text);
+    node.type = "button";
+    if (title) node.title = title;
+    node.addEventListener("click", (e) => {
+      e.stopPropagation();
+      onClick(e);
+    });
+    return node;
+  }
+
+  // src/ui/format.ts
+  function plural(n, one, many = one + "s") {
+    return `${n} ${n === 1 ? one : many}`;
+  }
+  function ago(ms, now = Date.now()) {
+    if (!ms) return "";
+    const d = Math.max(0, now - ms);
+    if (d < 1e4) return "just now";
+    if (d < 6e4) return `${Math.round(d / 1e3)}s ago`;
+    if (d < 36e5) return `${Math.round(d / 6e4)}m ago`;
+    if (d < 1728e5) return `${Math.round(d / 36e5)}h ago`;
+    return `${Math.round(d / 864e5)}d ago`;
+  }
+  function timeOf(text) {
+    const ms = Date.parse(text ?? "");
+    return Number.isNaN(ms) ? 0 : ms;
+  }
+  function percent(part, whole) {
+    if (!whole) return "0%";
+    const p = part / whole * 100;
+    return (p > 0 && p < 1 ? "<1" : String(Math.floor(p))) + "%";
+  }
+  var UNITS = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"];
+  function bytes(n) {
+    if (!Number.isFinite(n) || n <= 0) return "0 B";
+    let i = 0;
+    let v = n;
+    while (v >= 1024 && i < UNITS.length - 1) {
+      v /= 1024;
+      i++;
+    }
+    return `${v >= 10 || i === 0 ? Math.round(v) : v.toFixed(1).replace(/\.0$/, "")} ${UNITS[i]}`;
+  }
+  var SUFFIX = {
+    Ki: 1024,
+    Mi: 1024 ** 2,
+    Gi: 1024 ** 3,
+    Ti: 1024 ** 4,
+    Pi: 1024 ** 5,
+    Ei: 1024 ** 6,
+    k: 1e3,
+    K: 1e3,
+    M: 1e6,
+    G: 1e9,
+    T: 1e12,
+    P: 1e15,
+    E: 1e18,
+    m: 1e-3
+  };
+
+  // src/ui/page.ts
+  var sdk = k8sdockside;
+  function message(err) {
+    return err instanceof Error ? err.message : String(err);
+  }
+  var banner = {
+    show(err) {
+      const node = document.getElementById("error");
+      if (!node) return;
+      node.textContent = message(err);
+      node.hidden = false;
+    },
+    clear() {
+      const node = document.getElementById("error");
+      if (node) node.hidden = true;
+    }
+  };
+  function every(ms, fn, onError = banner.show) {
+    let stopped = false;
+    let timer;
+    const run = () => {
+      Promise.resolve().then(fn).catch((err) => {
+        if (!stopped) onError(err);
+      }).then(() => {
+        if (!stopped) timer = setTimeout(run, ms);
+      });
+    };
+    run();
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }
+  var store = {
+    async get(key) {
+      try {
+        return sdk.storage ? await sdk.storage.get(key) : null;
+      } catch {
+        return null;
+      }
+    },
+    async set(key, value) {
+      try {
+        if (sdk.storage) await sdk.storage.set(key, value);
+      } catch {
+      }
+    },
+    async remove(key) {
+      try {
+        if (sdk.storage) await sdk.storage.remove(key);
+      } catch {
+      }
+    }
+  };
+  function politely(root, redraw) {
+    let pressed = false;
+    let owed = false;
+    const busy = () => {
+      if (pressed) return true;
+      const active = document.activeElement;
+      if (active && root.contains(active) && /^(INPUT|SELECT|TEXTAREA)$/.test(active.tagName)) return true;
+      const selection = document.getSelection();
+      if (selection && !selection.isCollapsed && selection.anchorNode && root.contains(selection.anchorNode)) return true;
+      return false;
+    };
+    const settle = () => {
+      if (owed && !busy()) {
+        owed = false;
+        keepFocus(root, redraw);
+      }
+    };
+    root.addEventListener("pointerdown", () => pressed = true);
+    window.addEventListener("pointerup", () => {
+      pressed = false;
+      setTimeout(settle, 0);
+    });
+    window.addEventListener("pointercancel", () => {
+      pressed = false;
+      settle();
+    });
+    root.addEventListener("focusout", () => setTimeout(settle, 0));
+    document.addEventListener("selectionchange", () => {
+      if (owed) setTimeout(settle, 0);
+    });
+    return () => {
+      if (busy()) owed = true;
+      else keepFocus(root, redraw);
+    };
+  }
+  function keepFocus(root, redraw) {
+    const active = document.activeElement;
+    const key = active instanceof HTMLElement && root.contains(active) ? active.dataset.focus : void 0;
+    const scrolls = /* @__PURE__ */ new Map();
+    root.querySelectorAll("[data-scroll]").forEach((n) => scrolls.set(n.dataset.scroll, n.scrollTop));
+    redraw();
+    root.querySelectorAll("[data-scroll]").forEach((n) => {
+      const top = scrolls.get(n.dataset.scroll);
+      if (top) n.scrollTop = top;
+    });
+    if (key) {
+      const again = [...root.querySelectorAll("[data-focus]")].find((n) => n.dataset.focus === key);
+      again?.focus({ preventScroll: true });
+    }
+  }
+
+  // src/ui/nav.ts
+  var FOCUS_KEY = "focus";
+  function openInApp(ref) {
+    if (!ref) return;
+    sdk.open({ kind: ref.kind, namespace: ref.namespace || void 0, name: ref.name }).catch(banner.show);
+  }
+  function editInApp(ref) {
+    if (!ref) return;
+    sdk.edit({ kind: ref.kind, namespace: ref.namespace || void 0, name: ref.name }).catch(banner.show);
+  }
+  async function goTo(view, focus) {
+    if (focus) await store.set(FOCUS_KEY, { view, id: focus, at: Date.now() });
+    try {
+      await sdk.openView(view);
+    } catch (err) {
+      banner.show(err);
+    }
   }
 
   // src/ui/widgets.ts
@@ -1436,7 +1439,11 @@
         )
       );
     }
-    add(root, quote(st.failureMessage || m.message, st.failureMessage ? "error" : m.tone));
+    const failure = st.failureMessage || st.failureReason || "";
+    add(
+      root,
+      failure && machineRunning(m) ? quote(`The operator’s last recorded failure -- the machine runs now: ${failure}`, "muted") : quote(failure || m.message, failure ? "error" : m.tone)
+    );
     if (m.issues.length) root.appendChild(issueList(m.issues, { showSubject: false, now }));
     const facts = card("Machine", { icon: "machine" });
     const cls = m.machineClass?.spec;

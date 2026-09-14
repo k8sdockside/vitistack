@@ -621,7 +621,7 @@
   };
   function conditionFindings(c, view, area, conditions, skipTypes = /* @__PURE__ */ new Set()) {
     for (const cond of conditions ?? []) {
-      if (skipTypes.has(cond.type ?? "")) continue;
+      if (!cond.type || cond.type === "Unknown" || skipTypes.has(cond.type)) continue;
       const tone = conditionTone(cond);
       if (tone !== "error" && tone !== "warn") continue;
       const title = `${cond.type ?? "Condition"}${cond.reason ? ": " + splitWords(cond.reason) : ""}`;
@@ -761,11 +761,14 @@
     if (!m) return null;
     return { major: Number(m[1]), minor: Number(m[2]), patch: Number(m[3] ?? 0), hasPatch: m[3] !== void 0, pre: "", raw: text };
   }
+  function machineRunning(m) {
+    return /^running$/i.test(m.phase) && (!m.state || /^running$/i.test(m.state));
+  }
   function machineFindings(c, model, m) {
     const now = model.now;
     const st = m.obj.status ?? {};
     const phase = m.phase;
-    if (st.failureReason || st.failureMessage) {
+    if (!machineRunning(m) && (st.failureReason || st.failureMessage)) {
       c.add(m, "machine", "error", "failure", st.failureReason ? `Failed: ${splitWords(st.failureReason)}` : "Machine failed", st.failureMessage ?? st.message ?? "");
     } else if (phaseTone(phase) === "error") {
       c.add(m, "machine", "error", "phase", `Machine ${phase.toLowerCase()}`, st.message ?? "");
@@ -2189,7 +2192,11 @@
         )
       );
     }
-    add(root, quote(st.failureMessage || m.message, st.failureMessage ? "error" : m.tone));
+    const failure = st.failureMessage || st.failureReason || "";
+    add(
+      root,
+      failure && machineRunning(m) ? quote(`The operator’s last recorded failure -- the machine runs now: ${failure}`, "muted") : quote(failure || m.message, failure ? "error" : m.tone)
+    );
     if (m.issues.length) root.appendChild(issueList(m.issues, { showSubject: false, now }));
     const facts = card("Machine", { icon: "machine" });
     const cls = m.machineClass?.spec;

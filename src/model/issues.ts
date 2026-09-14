@@ -78,7 +78,8 @@ class Collector {
 /** Conditions that say something is wrong, as findings. */
 function conditionFindings(c: Collector, view: AnyView, area: IssueArea, conditions: readonly Condition[] | undefined, skipTypes: ReadonlySet<string> = new Set()): void {
     for (const cond of conditions ?? []) {
-        if (skipTypes.has(cond.type ?? '')) continue;
+        // A condition with no type, or of type "Unknown", names nothing that can be ready or not.
+        if (!cond.type || cond.type === 'Unknown' || skipTypes.has(cond.type)) continue;
         const tone = conditionTone(cond);
         if (tone !== 'error' && tone !== 'warn') continue;
         const title = `${cond.type ?? 'Condition'}${cond.reason ? ': ' + splitWords(cond.reason) : ''}`;
@@ -246,11 +247,21 @@ function parseVersionLoose(text: string) {
 
 // ----- machines ----------------------------------------------------------------------------------
 
+/**
+ * Whether a machine says it runs, in its phase and its state alike.
+ * kubevirt-operator writes failureReason and failureMessage when a VM has
+ * trouble and never clears them, so on a machine that runs again they are
+ * history, not a failure.
+ */
+export function machineRunning(m: MachineView): boolean {
+    return /^running$/i.test(m.phase) && (!m.state || /^running$/i.test(m.state));
+}
+
 function machineFindings(c: Collector, model: Model, m: MachineView): void {
     const now = model.now;
     const st = m.obj.status ?? {};
     const phase = m.phase;
-    if (st.failureReason || st.failureMessage) {
+    if (!machineRunning(m) && (st.failureReason || st.failureMessage)) {
         c.add(m, 'machine', 'error', 'failure', st.failureReason ? `Failed: ${splitWords(st.failureReason)}` : 'Machine failed', st.failureMessage ?? st.message ?? '');
     } else if (phaseTone(phase) === 'error') {
         c.add(m, 'machine', 'error', 'phase', `Machine ${phase.toLowerCase()}`, st.message ?? '');

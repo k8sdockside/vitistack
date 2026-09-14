@@ -3,6 +3,7 @@
 
 import { KIND } from '../model/kinds';
 import { phaseTone, worst, type Tone } from '../model/health';
+import { machineRunning } from '../model/issues';
 import type { ClusterView, MachineView, Model, NetworkView, PoolView } from '../model/model';
 import { eventsFor } from '../model/snapshot';
 import type { KubeEvent } from '../model/types';
@@ -299,7 +300,14 @@ export function machineDetail(m: MachineView, ctx: DetailContext): HTMLElement {
             ),
         );
     }
-    add(root, quote(st.failureMessage || m.message, st.failureMessage ? 'error' : m.tone));
+    // The operator never clears a failure, so on a machine that runs again it is history.
+    const failure = st.failureMessage || st.failureReason || '';
+    add(
+        root,
+        failure && machineRunning(m)
+            ? quote(`The operator’s last recorded failure -- the machine runs now: ${failure}`, 'muted')
+            : quote(failure || m.message, failure ? 'error' : m.tone),
+    );
     if (m.issues.length) root.appendChild(issueList(m.issues, { showSubject: false, now }));
 
     // The machine and where it lives
