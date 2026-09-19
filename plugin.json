@@ -1,5 +1,5 @@
 {
-    "$schema": "https://raw.githubusercontent.com/rogerwesterbo/k8sdockside/main/docs/plugin.schema.json",
+    "$schema": "https://raw.githubusercontent.com/k8sdockside/k8sdockside/main/docs/plugin.schema.json",
     "id": "vitistack",
     "name": "Vitistack",
     "version": "1.0.0",
@@ -7,14 +7,14 @@
     "tagline": "a supervisor cluster -- networks, clusters, machines and their VMs -- as one picture",
     "icon": "layers",
     "logo": "logo.svg",
-    "author": "Roger Westerbo",
+    "author": "K8s Dockside",
     "docs": "https://github.com/vitistack",
     "links": [
         { "label": "Vitistack", "url": "https://github.com/vitistack" },
         { "label": "Cluster upgrades", "url": "https://github.com/vitistack/talos-operator/blob/main/docs/cluster-upgrades.md" },
         { "label": "Talos support matrix", "url": "https://www.talos.dev/latest/introduction/support-matrix/" },
         { "label": "Kubernetes releases", "url": "https://kubernetes.io/releases/" },
-        { "label": "Source", "url": "https://github.com/rogerwesterbo/k8sdockside-vitistack" }
+        { "label": "Source", "url": "https://github.com/k8sdockside/vitistack" }
     ],
     "description": "Vitistack turns a Kubernetes cluster into a supervisor for other Kubernetes clusters: a KubernetesCluster asks for a network namespace, control planes and node pools; talos-operator makes a Machine for each node; a machine provider -- KubeVirt through a KubevirtConfig, or Proxmox -- turns each Machine into a virtual machine. This plugin reads those objects and puts them back together.\n\nStart with the Overview: whether anything is failing, the whole chain from network to VM with a count and a health bar at every step, every machine as a honeycomb by cluster, and what needs you. Topology draws the supervisor as one graph, left to right -- network namespace, cluster, machine provider, where the machines run, the machines, their VMs -- and lights up the chains through whatever you select. Clusters and Machines & VMs are the working pages: every cluster as a card and every machine in a table, each one in full in a drawer, with its conditions, its network configuration and its events. Upgrades sets every cluster against the Kubernetes release calendar and the Talos support matrix, draws the path from where it is to the newest release -- Talos first wherever it has to be -- and sets talos-operator's upgrade.vitistack.io target annotations for you. Network shows each network namespace's address pool, how full it is, and every address handed out.\n\nEvery KubernetesCluster and Machine also gets a Vitistack panel in its detail view, and a failed upgrade gets Resume, Retry, Skip and Reset buttons on its action bar. The app shows every change and asks before it is made.",
     "requires": [

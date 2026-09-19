@@ -4,10 +4,10 @@
     "private": true,
     "description": "Vitistack: a K8s Dockside plugin that draws a Vitistack supervisor cluster -- network namespaces, Kubernetes clusters, machine providers, machines and their virtual machines -- as one connected picture, with what is broken and which upgrades are due.",
     "license": "Apache-2.0",
-    "author": "Roger Westerbo",
+    "author": "K8s Dockside",
     "repository": {
         "type": "git",
-        "url": "https://github.com/rogerwesterbo/k8sdockside-vitistack"
+        "url": "https://github.com/k8sdockside/vitistack"
     },
     "type": "module",
     "engines": {

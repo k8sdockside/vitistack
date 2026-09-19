@@ -1,6 +1,6 @@
 # Vitistack for K8s Dockside
 
-A [K8s Dockside](https://github.com/rogerwesterbo/k8sdockside) plugin for a
+A [K8s Dockside](https://github.com/k8sdockside/k8sdockside) plugin for a
 [Vitistack](https://github.com/vitistack) supervisor cluster. Vitistack spreads one
 Kubernetes cluster over a dozen kinds of object — a `KubernetesCluster` asks for a
 `NetworkNamespace`, talos-operator makes a `Machine` per node, a `MachineProvider`
@@ -38,7 +38,7 @@ upgrade state** on its action bar.
 ## Install
 
 **Settings → Plugins → From a repository**, with
-`https://github.com/rogerwesterbo/k8sdockside-vitistack.git`. It needs K8s Dockside
+`https://github.com/k8sdockside/vitistack.git`. It needs K8s Dockside
 0.0.19 or later.
 
 ## How the objects are linked
@@ -119,7 +119,7 @@ npm install
 npm run build      # src/ -> ui/
 npm run watch      # rebuild on every change; reopen the tab to see it
 npm run check      # type-check, test, and check ui/ matches a fresh build
-go run github.com/rogerwesterbo/k8sdockside/cmd/plugincheck@main .
+go run github.com/k8sdockside/k8sdockside/cmd/plugincheck@main .
 ```
 
 Commit `ui/` with every change to `src/`: installing from a repository only clones it.
