@@ -3,9 +3,10 @@
     "id": "vitistack",
     "name": "Vitistack",
     "version": "1.0.0",
-    "minAppVersion": "0.0.19",
+    "minAppVersion": "0.0.30",
     "tagline": "a supervisor cluster -- networks, clusters, machines and their VMs -- as one picture",
     "icon": "layers",
+    "logo": "logo.svg",
     "author": "Roger Westerbo",
     "docs": "https://github.com/vitistack",
     "links": [
