@@ -3,7 +3,7 @@
     "id": "vitistack",
     "name": "Vitistack",
     "version": "1.0.0",
-    "minAppVersion": "0.0.30",
+    "minAppVersion": "0.1.9",
     "tagline": "a supervisor cluster -- networks, clusters, machines and their VMs -- as one picture",
     "icon": "layers",
     "logo": "logo.svg",
@@ -64,6 +64,16 @@
         { "id": "clusterstorageclasses", "label": "ClusterStorageClass", "icon": "folder", "kind": "crd:clusterstorageclasses.vitistack.io" }
     ],
     "actions": [
+        {
+            "id": "delete-cluster",
+            "label": "Delete cluster",
+            "icon": "trash",
+            "tone": "danger",
+            "kind": "crd:kubernetesclusters.vitistack.io",
+            "confirm": "Delete the Kubernetes cluster {namespace}/{name}? talos-operator tears down its machines and their virtual machines, and everything running on the cluster goes with them. This cannot be undone.",
+            "done": "Deleting {name}",
+            "request": { "type": "delete" }
+        },
         {
             "id": "upgrade-resume",
             "label": "Resume upgrade",

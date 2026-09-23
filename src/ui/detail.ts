@@ -11,6 +11,7 @@ import { kubeText, talosText } from '../model/version';
 import { add, button, chip, el, icon, linkButton, type Child } from './dom';
 import { ago, bytes, percent, plural, quantity, timeOf } from './format';
 import { editInApp, goTo, openInApp, openUrl } from './nav';
+import { banner, declined, sdk } from './page';
 import { upgradeCard } from './upgrade-ui';
 import { card, conditionList, dot, eventList, healthChip, issueList, kv, meter, phaseChip, ring, tile, versionPill } from './widgets';
 
@@ -126,6 +127,22 @@ function resourceMeters(c: ClusterView): HTMLElement | null {
 
 // ----- a cluster ----------------------------------------------------------------------------------
 
+/** The manifest action that deletes a KubernetesCluster. */
+export const DELETE_CLUSTER = 'delete-cluster';
+
+/**
+ * Asks to delete a cluster. The app shows what is going and waits for its name
+ * to be typed; the operator then takes down its machines and VMs.
+ */
+export async function askDelete(c: ClusterView, ctx: Pick<DetailContext, 'onChanged'>): Promise<void> {
+    try {
+        await sdk.run(DELETE_CLUSTER, { namespace: c.namespace, name: c.name });
+        ctx.onChanged?.();
+    } catch (err) {
+        if (!declined(err)) banner.show(err);
+    }
+}
+
 export function clusterDetail(c: ClusterView, ctx: DetailContext): HTMLElement {
     const root = el('div', 'detail' + (ctx.compact ? ' compact' : ''));
     const now = ctx.model.now;
@@ -146,6 +163,7 @@ export function clusterDetail(c: ClusterView, ctx: DetailContext): HTMLElement {
                 button('Edit YAML', 'small ghost', 'edit', () => editInApp(c.ref)),
                 button('Topology', 'small ghost', 'graph', () => void goTo('topology', c.id)),
                 button('Machines', 'small ghost', 'machine', () => void goTo('machines', 'cluster=' + c.id)),
+                ctx.write && !c.deleting ? button('Delete', 'small danger', 'trash', () => void askDelete(c, ctx)) : null,
             ),
         );
     }

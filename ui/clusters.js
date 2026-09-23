@@ -1536,6 +1536,7 @@
     check: ["M4.5 12.5l5 5L19.5 7"],
     "check-circle": ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z", "M8 12.5l2.8 2.8L16.5 9.5"],
     close: ["M6.5 6.5l11 11", "M17.5 6.5l-11 11"],
+    trash: ["M4 7h16", "M9.5 7V4.5h5V7", "M6 7l1 13h10l1-13", "M10 11v5.5", "M14 11v5.5"],
     info: ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z", "M12 11v6", "M12 7.5h.01"],
     clock: ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z", "M12 7v5l3.2 2"],
     search: ["M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14z", "M20 20l-4-4"],
@@ -2590,6 +2591,15 @@
     }
     return rows.length ? kv(rows) : null;
   }
+  var DELETE_CLUSTER = "delete-cluster";
+  async function askDelete(c, ctx) {
+    try {
+      await sdk.run(DELETE_CLUSTER, { namespace: c.namespace, name: c.name });
+      ctx.onChanged?.();
+    } catch (err) {
+      if (!declined(err)) banner.show(err);
+    }
+  }
   function clusterDetail(c, ctx) {
     const root = el("div", "detail" + (ctx.compact ? " compact" : ""));
     const now = ctx.model.now;
@@ -2608,7 +2618,8 @@
           button("Open", "small", "open", () => openInApp(c.ref)),
           button("Edit YAML", "small ghost", "edit", () => editInApp(c.ref)),
           button("Topology", "small ghost", "graph", () => void goTo("topology", c.id)),
-          button("Machines", "small ghost", "machine", () => void goTo("machines", "cluster=" + c.id))
+          button("Machines", "small ghost", "machine", () => void goTo("machines", "cluster=" + c.id)),
+          ctx.write && !c.deleting ? button("Delete", "small danger", "trash", () => void askDelete(c, ctx)) : null
         )
       );
     }
