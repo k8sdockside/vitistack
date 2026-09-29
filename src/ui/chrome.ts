@@ -8,7 +8,7 @@ import { add, byId, el, icon, type Child } from './dom';
 import type { IconName } from './icons';
 import { isMissing, presence } from './load';
 import { goTo, type ViewId } from './nav';
-import { banner, sdk } from './page';
+import { banner, restoreView, sdk } from './page';
 import { notInstalled } from './widgets';
 
 export const VIEWS: readonly { id: ViewId; label: string; icon: IconName }[] = [
@@ -91,6 +91,7 @@ export function start(view: ViewId, run: (ctx: K8sDockside.Context, root: HTMLEl
                 root.replaceChildren(navBar(view), notInstalled(summary!));
                 return;
             }
+            await restoreView(view);
             run(ctx, root);
         })
         .catch((err: unknown) => banner.show(err));

@@ -88,9 +88,10 @@ export const store = {
 // ----- the address ------------------------------------------------------------------------
 
 /**
- * Switching away from a tab unloads its page, so what the user picked -- a
- * filter, a search, an open drawer -- is kept in the URL hash and read back
- * when they return.
+ * What the user picked -- a filter, a search, an open drawer -- is kept in the
+ * URL hash, so a reload of the frame keeps it. Switching tabs does not: the app
+ * loads the page afresh, without a hash, so the hash is also remembered in the
+ * app's storage (per plugin and per cluster) and put back by `restoreView`.
  */
 export function readHash(): Record<string, string> {
     const out: Record<string, string> = {};
@@ -107,10 +108,11 @@ export function readHash(): Record<string, string> {
 }
 
 export function writeHash(values: Record<string, string | null | undefined | false>): void {
-    const text = Object.entries(values)
-        .filter((entry): entry is [string, string] => typeof entry[1] === 'string' && entry[1] !== '')
-        .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
-        .join('&');
+    const kept = Object.entries(values).filter(
+        (entry): entry is [string, string] => typeof entry[1] === 'string' && entry[1] !== '',
+    );
+    remember(kept);
+    const text = kept.map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
     const hash = text ? '#' + text : '';
     if (hash === location.hash || (!hash && !location.hash)) return;
     try {
@@ -123,6 +125,44 @@ export function writeHash(values: Record<string, string | null | undefined | fal
             /* in memory only */
         }
     }
+}
+
+/**
+ * Keys that point at one object -- the open drawer, the thing to focus -- are
+ * not remembered: coming back to a tab should bring back the search and the
+ * filters, not reopen whatever was last looked at, which may be gone by then.
+ */
+const FORGOTTEN = new Set(['sel', 'focus']);
+/** How long typing may pause before what was typed is written to storage. */
+const REMEMBER_AFTER_MS = 400;
+
+let viewKey = '';
+let rememberTimer: ReturnType<typeof setTimeout> | undefined;
+
+function remember(entries: [string, string][]): void {
+    if (!viewKey) return;
+    const key = viewKey;
+    const value = Object.fromEntries(entries.filter(([k]) => !FORGOTTEN.has(k)));
+    clearTimeout(rememberTimer);
+    rememberTimer = setTimeout(() => {
+        void (Object.keys(value).length ? store.set(key, value) : store.remove(key));
+    }, REMEMBER_AFTER_MS);
+}
+
+/**
+ * Puts back what the user last picked on this view, when the page was opened
+ * without a hash of its own. A hash that is there -- a reload, or the app
+ * asking for an object -- wins over what was remembered. From here on, every
+ * `writeHash` is remembered under this view.
+ */
+export async function restoreView(view: string): Promise<void> {
+    viewKey = `view:${view}`;
+    if (location.hash.replace(/^#/, '')) return;
+    const saved = await store.get<Record<string, unknown>>(viewKey);
+    if (!saved || typeof saved !== 'object') return;
+    const values: Record<string, string> = {};
+    for (const [k, v] of Object.entries(saved)) if (typeof v === 'string' && !FORGOTTEN.has(k)) values[k] = v;
+    writeHash(values);
 }
 
 // ----- redrawing politely -------------------------------------------------------------------

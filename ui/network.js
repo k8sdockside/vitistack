@@ -1621,7 +1621,11 @@
     return out;
   }
   function writeHash(values) {
-    const text = Object.entries(values).filter((entry) => typeof entry[1] === "string" && entry[1] !== "").map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
+    const kept = Object.entries(values).filter(
+      (entry) => typeof entry[1] === "string" && entry[1] !== ""
+    );
+    remember(kept);
+    const text = kept.map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
     const hash = text ? "#" + text : "";
     if (hash === location.hash || !hash && !location.hash) return;
     try {
@@ -1632,6 +1636,28 @@
       } catch {
       }
     }
+  }
+  var FORGOTTEN = /* @__PURE__ */ new Set(["sel", "focus"]);
+  var REMEMBER_AFTER_MS = 400;
+  var viewKey = "";
+  var rememberTimer;
+  function remember(entries) {
+    if (!viewKey) return;
+    const key = viewKey;
+    const value = Object.fromEntries(entries.filter(([k]) => !FORGOTTEN.has(k)));
+    clearTimeout(rememberTimer);
+    rememberTimer = setTimeout(() => {
+      void (Object.keys(value).length ? store.set(key, value) : store.remove(key));
+    }, REMEMBER_AFTER_MS);
+  }
+  async function restoreView(view) {
+    viewKey = `view:${view}`;
+    if (location.hash.replace(/^#/, "")) return;
+    const saved = await store.get(viewKey);
+    if (!saved || typeof saved !== "object") return;
+    const values = {};
+    for (const [k, v] of Object.entries(saved)) if (typeof v === "string" && !FORGOTTEN.has(k)) values[k] = v;
+    writeHash(values);
   }
   function politely(root, redraw) {
     let pressed = false;
@@ -2043,6 +2069,7 @@
         root.replaceChildren(navBar(view), notInstalled(summary));
         return;
       }
+      await restoreView(view);
       run(ctx, root);
     }).catch((err) => banner.show(err));
   }
