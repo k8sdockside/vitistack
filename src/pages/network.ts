@@ -1,22 +1,38 @@
 // Network: every NetworkNamespace -- how its segment was provisioned, how full
 // its address pool is, which clusters live in it, and every address it has
-// handed out.
+// handed out. Shown as cards, or as a table that sorts and filters by any
+// column, with a row opening on the network's card. Which of the two was
+// shown last is remembered for this cluster.
 
 import { toneRank } from '../model/health';
 import { KIND } from '../model/kinds';
 import type { Model, NetworkView } from '../model/model';
 import { badgesFor, navBar, pageHead, start } from '../ui/chrome';
-import { add, button, el, icon, linkButton } from '../ui/dom';
+import { clearFilters, dataTable, filterRows, layoutSwitch, readTable, savedLayout, saveLayout, sortRows, tableHash, type Column, type Layout } from '../ui/datatable';
+import { add, button, chip, el, icon, linkButton } from '../ui/dom';
 import { ago, percent, plural, timeOf } from '../ui/format';
 import { liveModel } from '../ui/load';
 import { editInApp, goTo, openInApp, takeFocus } from '../ui/nav';
 import { politely, readHash, writeHash } from '../ui/page';
-import { empty, issueList, kv, phaseChip, ring, searchBox, select, tile } from '../ui/widgets';
+import { dot, empty, issueList, kv, meter, phaseChip, ring, searchBox, select, tile } from '../ui/widgets';
 
 start('network', (_ctx, root) => {
     const hash = readHash();
-    const state = { q: hash.q ?? '', ns: hash.ns ?? '', sel: hash.sel ?? '', open: new Set((hash.open ?? '').split(',').filter(Boolean)) };
+    const state = {
+        q: hash.q ?? '',
+        ns: hash.ns ?? '',
+        sel: hash.sel ?? '',
+        open: new Set((hash.open ?? '').split(',').filter(Boolean)),
+        layout: 'cards' as Layout,
+        table: readTable(hash, 'health', false),
+        /** Table rows drawn open. */
+        rows: new Set((hash.rows ?? '').split('|').filter(Boolean)),
+    };
     let model: Model | null = null;
+    void savedLayout('network', 'cards').then((layout) => {
+        state.layout = layout;
+        redraw();
+    });
 
     const redraw = politely(root, draw);
     liveModel({
@@ -28,13 +44,14 @@ start('network', (_ctx, root) => {
     void takeFocus('network').then((id) => {
         if (!id) return;
         state.sel = id;
+        state.rows.add(id);
         save();
         redraw();
         requestAnimationFrame(() => document.getElementById('nn-' + cssId(id))?.scrollIntoView({ block: 'center' }));
     });
 
     function save(): void {
-        writeHash({ q: state.q, ns: state.ns, sel: state.sel, open: [...state.open].join(',') });
+        writeHash({ q: state.q, ns: state.ns, sel: state.sel, open: [...state.open].join(','), rows: [...state.rows].slice(0, 8).join('|'), ...tableHash(state.table, 'health', false) });
     }
 
     function draw(): void {
@@ -79,21 +96,139 @@ start('network', (_ctx, root) => {
                 : null,
         );
 
+        add(
+            toolbar,
+            el('span', 'push'),
+            state.layout === 'table' ? clearFilters(state.table, changed) : null,
+            layoutSwitch(state.layout, (layout) => {
+                state.layout = layout;
+                saveLayout('network', layout);
+                redraw();
+            }),
+        );
+
         const q = state.q.trim().toLowerCase();
-        const shown = m.networks
-            .filter((n) => (!state.ns || n.namespace === state.ns) && (!q || [n.name, n.namespace, n.ipv4, n.ipv6, n.egress, String(n.vlan ?? ''), n.provisioning, ...n.clusters.map((c) => c.name)].join(' ').toLowerCase().includes(q)))
-            .sort((a, b) => toneRank(b.health) - toneRank(a.health) || a.namespace.localeCompare(b.namespace) || a.name.localeCompare(b.name));
-        const grid = el('div', 'ngrid');
-        for (const n of shown) grid.appendChild(netCard(n, m));
+        const byHealth = (a: NetworkView, b: NetworkView): number => toneRank(b.health) - toneRank(a.health) || a.namespace.localeCompare(b.namespace) || a.name.localeCompare(b.name);
+        const shown = m.networks.filter(
+            (n) => (!state.ns || n.namespace === state.ns) && (!q || [n.name, n.namespace, n.ipv4, n.ipv6, n.egress, String(n.vlan ?? ''), n.provisioning, ...n.clusters.map((c) => c.name)].join(' ').toLowerCase().includes(q)),
+        );
+
+        let body: HTMLElement;
+        if (!m.networks.length) body = empty('No NetworkNamespaces in this supervisor yet.', '', 'network');
+        else if (state.layout === 'table') {
+            body = dataTable({
+                columns: COLUMNS,
+                all: m.networks,
+                rows: sortRows(filterRows(shown, COLUMNS, state.table), COLUMNS, state.table, byHealth),
+                key: (n) => n.id,
+                state: state.table,
+                onChange: changed,
+                onOpen: (n) => {
+                    if (state.rows.has(n.id)) state.rows.delete(n.id);
+                    else state.rows.add(n.id);
+                    changed();
+                },
+                opened: state.rows,
+                detail: (n) => netCard(n, m),
+                rowClass: (n) => n.health,
+                className: 'ntable',
+                empty: 'No network namespace matches. Try clearing the filters.',
+            });
+        } else if (!shown.length) body = empty('No network namespace matches.', '', 'network');
+        else {
+            body = el('div', 'ngrid');
+            for (const n of shown.sort(byHealth)) body.appendChild(netCard(n, m));
+        }
 
         root.replaceChildren(
             navBar('network', badgesFor(m)),
             pageHead('Network', `${plural(m.networks.length, 'network namespace')} · ${plural(m.snapshot.ipAllocations.length, 'address', 'addresses')} handed out`, 'network'),
             tiles,
             toolbar,
-            shown.length ? grid : empty(m.networks.length ? 'No network namespace matches.' : 'No NetworkNamespaces in this supervisor yet.', '', 'network'),
+            body,
         );
     }
+
+    function changed(): void {
+        save();
+        redraw();
+    }
+
+    // ----- the table -------------------------------------------------------------------------
+
+    const COLUMNS: Column<NetworkView>[] = [
+        { id: 'health', label: '', className: 'col-dot', sort: (n) => -toneRank(n.health), filter: (n) => HEALTH_WORD[n.health] ?? n.health, pick: true, cell: (n) => dot(n.health) },
+        {
+            id: 'name',
+            label: 'Network',
+            className: 'mname',
+            sort: (n) => n.name,
+            filter: (n) => n.name,
+            cell: (n) => [el('div', '', n.name), n.issues.length ? el('div', 'mname-issue ' + n.issues[0]!.tone, n.issues[0]!.title) : el('div', 'faint small', n.namespace)],
+        },
+        { id: 'namespace', label: 'Namespace', sort: (n) => n.namespace, filter: (n) => n.namespace, pick: true, cell: (n) => el('span', 'small', n.namespace) },
+        {
+            id: 'phase',
+            label: 'Provisioning',
+            sort: (n) => n.provisioningPhase || n.phase,
+            filter: (n) => n.provisioningPhase || n.phase || 'no status',
+            pick: true,
+            cell: (n) => phaseChip(n.provisioningPhase || n.phase, n.provisioningPhase === 'Error' ? 'error' : n.provisioningPhase === 'Ready' ? 'ok' : n.provisioningPhase ? 'info' : n.tone),
+        },
+        { id: 'by', label: 'Provisioned by', sort: (n) => n.provisioning, filter: (n) => n.provisioning, pick: true, cell: (n) => el('span', 'small', n.provisioning || '—') },
+        { id: 'vlan', label: 'VLAN', className: 'num', sort: (n) => n.vlan, filter: (n) => (n.vlan !== null ? String(n.vlan) : ''), cell: (n) => el('span', 'small mono', n.vlan !== null ? String(n.vlan) : '—') },
+        { id: 'ipv4', label: 'Prefix', className: 'mono', sort: (n) => ipKey(n.ipv4.split('/')[0]), filter: (n) => n.ipv4, cell: (n) => el('span', 'small', n.ipv4 || '—') },
+        { id: 'ipv6', label: 'IPv6', className: 'mono', sort: (n) => n.ipv6, filter: (n) => n.ipv6, cell: (n) => el('span', 'small' + (n.ipv6 ? '' : ' faint'), n.ipv6 || '—') },
+        {
+            id: 'gateway',
+            label: 'Gateway',
+            className: 'mono',
+            sort: (n) => ipKey(n.obj.spec?.ipAllocation?.static?.ipv4Gateway),
+            filter: (n) => n.obj.spec?.ipAllocation?.static?.ipv4Gateway ?? '',
+            cell: (n) => el('span', 'small', n.obj.spec?.ipAllocation?.static?.ipv4Gateway || '—'),
+        },
+        { id: 'egress', label: 'Egress', className: 'mono', sort: (n) => n.egress, filter: (n) => n.egress, cell: (n) => el('span', 'small' + (n.egress ? '' : ' faint'), n.egress || '—') },
+        {
+            id: 'addresses',
+            label: 'Addresses',
+            sort: (n) => `${n.allocationType} ${n.allocationProvider}`,
+            filter: (n) => [n.allocationType, n.allocationProvider].filter(Boolean).join(' · '),
+            pick: true,
+            cell: (n) => [chip(n.allocationType || '—', n.allocationType === 'static' ? 'info' : ''), n.allocationProvider ? el('span', 'faint small', ' ' + n.allocationProvider) : null],
+        },
+        {
+            id: 'usage',
+            label: 'In use',
+            title: 'Static addresses handed out, of the pool',
+            sort: (n) => (n.ipTotal ? (n.ipUsed ?? 0) / n.ipTotal : null),
+            cell: (n) => {
+                if (!n.ipTotal) return el('span', 'faint small', n.ipUsed !== null ? String(n.ipUsed) : '—');
+                const used = n.ipUsed ?? 0;
+                const share = used / n.ipTotal;
+                return meter(used, n.ipTotal, { tone: share >= 1 ? 'error' : share >= 0.9 ? 'warn' : 'ok', text: `${used}/${n.ipTotal}` });
+            },
+        },
+        { id: 'leases', label: 'Leases', className: 'num', title: 'IP allocations', sort: (n) => n.allocations.length, cell: (n) => el('span', 'small', String(n.allocations.length)) },
+        { id: 'configs', label: 'Configs', className: 'num', title: 'Network configurations: one per machine', sort: (n) => n.configurations.length, cell: (n) => el('span', 'small', String(n.configurations.length)) },
+        {
+            id: 'clusters',
+            label: 'Clusters',
+            sort: (n) => n.clusters.length,
+            filter: (n) => n.clusters.map((c) => c.name).join(' '),
+            cell: (n) => {
+                if (!n.clusters.length) return el('span', 'faint small', 'none');
+                const box = el('span', 'cell-chips');
+                for (const c of n.clusters.slice(0, 3)) {
+                    const b = button(c.name, 'chipbtn', 'cluster', () => void goTo('clusters', c.id));
+                    b.classList.add(c.health);
+                    box.appendChild(b);
+                }
+                if (n.clusters.length > 3) box.appendChild(el('span', 'faint small', `+${n.clusters.length - 3}`));
+                return box;
+            },
+        },
+        { id: 'dc', label: 'Datacenter', sort: (n) => n.obj.status?.datacenterIdentifier ?? '', filter: (n) => n.obj.status?.datacenterIdentifier ?? '', pick: true, cell: (n) => el('span', 'small', n.obj.status?.datacenterIdentifier || '—') },
+    ];
 
     function netCard(n: NetworkView, m: Model): HTMLElement {
         const card = el('section', `ncard ${n.health}${state.sel === n.id ? ' focus' : ''}`);
@@ -221,6 +356,8 @@ start('network', (_ctx, root) => {
         return add(el('div', 'tbl-wrap'), t);
     }
 });
+
+const HEALTH_WORD: Record<string, string> = { error: 'failing', warn: 'needs a look', info: 'working', ok: 'healthy', muted: 'unknown' };
 
 function cssId(id: string): string {
     return id.replace(/[^a-zA-Z0-9_-]/g, '_');

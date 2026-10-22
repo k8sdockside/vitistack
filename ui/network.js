@@ -92,6 +92,20 @@
     if (status === "unknown") return WORKING_REASON.test(reason) ? "info" : "muted";
     return "muted";
   }
+  function toneWord(tone) {
+    switch (tone) {
+      case "error":
+        return "failing";
+      case "warn":
+        return "needs attention";
+      case "info":
+        return "in progress";
+      case "ok":
+        return "healthy";
+      default:
+        return "no status";
+    }
+  }
 
   // src/model/kinds.ts
   var KIND = {
@@ -217,6 +231,8 @@
     edit: ["M4 20h4L19 9l-4-4L4 16z", "M14 6l4 4"],
     chevron: ["M9.5 6l6 6-6 6"],
     "chevron-down": ["M6 9.5l6 6 6-6"],
+    "chevron-up": ["M6 14.5l6-6 6 6"],
+    sort: ["M8 4v16", "M4.5 7.5 8 4l3.5 3.5", "M16 20V4", "M12.5 16.5 16 20l3.5-3.5"],
     "arrow-right": ["M5 12h14", "M13 6l6 6-6 6"],
     upgrade: ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z", "M12 16.5V8", "M8.5 11.5 12 8l3.5 3.5"],
     refresh: ["M20.5 12a8.5 8.5 0 1 1-2.6-6.1", "M20.5 4v5h-5"],
@@ -1852,6 +1868,13 @@
         return "dot";
     }
   }
+  function dot(tone, title) {
+    const node = el("span", "dot " + tone);
+    node.title = title ?? toneWord(tone);
+    node.setAttribute("role", "img");
+    node.setAttribute("aria-label", node.title);
+    return node;
+  }
   function phaseChip(phase, tone = phaseTone(phase)) {
     return chip(phase ? phase : "no status yet", phase ? tone : "muted");
   }
@@ -1891,6 +1914,18 @@
     }
     if (opts.center !== void 0) node.appendChild(svgText(c, opts.sub ? c + 1 : c + size * 0.07, opts.center, { class: "ring-center", "font-size": size * 0.24 }));
     if (opts.sub) node.appendChild(svgText(c, c + size * 0.17, opts.sub, { class: "ring-sub", "font-size": Math.max(9, size * 0.1) }));
+    return node;
+  }
+  function meter(used, total, opts = {}) {
+    const ratio = total > 0 ? Math.min(1, Math.max(0, used / total)) : 0;
+    const tone = opts.tone ?? (ratio >= 1 ? "error" : ratio >= 0.9 ? "warn" : "ok");
+    const node = el("span", "meter");
+    const bar = el("span", "meter-bar");
+    const fill = el("i", "meter-fill " + tone);
+    fill.style.width = `${Math.round(ratio * 100)}%`;
+    bar.appendChild(fill);
+    add(node, bar, opts.text !== void 0 ? el("span", "meter-text", opts.text) : null);
+    if (opts.title) node.title = opts.title;
     return node;
   }
   function kv(rows) {
@@ -2074,11 +2109,227 @@
     }).catch((err) => banner.show(err));
   }
 
+  // src/ui/datatable.ts
+  function readTable(hash, sort, desc) {
+    const filters = {};
+    for (const [k, v] of Object.entries(hash)) if (k.startsWith("f.") && v) filters[k.slice(2)] = v;
+    return { sort: hash.sort || sort, desc: hash.desc ? hash.desc === "1" : desc, filters };
+  }
+  function tableHash(state, sort, desc) {
+    const out = { sort: state.sort === sort ? "" : state.sort, desc: state.desc === desc ? "" : state.desc ? "1" : "0" };
+    for (const [k, v] of Object.entries(state.filters)) if (v) out["f." + k] = v;
+    return out;
+  }
+  function filtering(state) {
+    return Object.values(state.filters).some(Boolean);
+  }
+  function filterRows(rows, columns, state) {
+    const active = columns.filter((c) => c.filter && state.filters[c.id]);
+    if (!active.length) return [...rows];
+    return rows.filter(
+      (row) => active.every((c) => {
+        const want = state.filters[c.id];
+        const have = c.filter(row);
+        if (c.pick) return have === want;
+        const text = have.toLowerCase();
+        return want.toLowerCase().split(/\s+/).filter(Boolean).every((w) => text.includes(w));
+      })
+    );
+  }
+  function sortRows(rows, columns, state, tie = () => 0) {
+    const col = columns.find((c) => c.id === state.sort && c.sort);
+    if (!col) return rows.sort(tie);
+    const key = col.sort;
+    return rows.sort((a, b) => {
+      const r = compareKeys(key(a), key(b));
+      return (state.desc ? -r : r) || tie(a, b);
+    });
+  }
+  function compareKeys(a, b) {
+    const blankA = a === null || a === void 0 || a === "";
+    const blankB = b === null || b === void 0 || b === "";
+    if (blankA || blankB) return blankA === blankB ? 0 : blankA ? 1 : -1;
+    if (typeof a === "number" && typeof b === "number") return a - b;
+    return String(a).localeCompare(String(b), void 0, { numeric: true, sensitivity: "base" });
+  }
+  function dataTable(opts) {
+    const { columns, state } = opts;
+    const table = el("table", "tbl dtable" + (opts.className ? " " + opts.className : ""));
+    const head = el("tr");
+    for (const col of columns) {
+      const th = el("th", col.className ?? "");
+      if (col.title) th.title = col.title;
+      if (col.sort) {
+        const on = state.sort === col.id;
+        const b = el("button", "th-sort" + (on ? " on" : ""));
+        b.type = "button";
+        b.dataset.focus = "sort:" + col.id;
+        add(b, el("span", "", col.label || "Health"), icon(on ? state.desc ? "chevron-down" : "chevron-up" : "sort", "th-dir"));
+        if (!col.label) b.classList.add("sr-label");
+        b.setAttribute("aria-label", `Sort by ${col.label || "health"}`);
+        th.setAttribute("aria-sort", on ? state.desc ? "descending" : "ascending" : "none");
+        b.addEventListener("click", () => {
+          if (state.sort === col.id) state.desc = !state.desc;
+          else {
+            state.sort = col.id;
+            state.desc = false;
+          }
+          opts.onChange();
+        });
+        th.appendChild(b);
+      } else th.textContent = col.label;
+      head.appendChild(th);
+    }
+    const filters = el("tr", "tbl-filters");
+    for (const col of columns) {
+      const td = el("th", col.className ?? "");
+      if (col.filter) td.appendChild(filterControl(col, opts));
+      filters.appendChild(td);
+    }
+    const thead = el("thead");
+    add(thead, head, filters);
+    const tbody = el("tbody");
+    for (const row of opts.rows) {
+      const id = opts.key(row);
+      const open = opts.opened?.has(id) ?? false;
+      const tr = el("tr", [opts.rowClass?.(row) ?? "", opts.onOpen ? "clickable" : "", opts.selected === id ? "sel" : "", open ? "open" : ""].filter(Boolean).join(" "));
+      if (opts.onOpen) {
+        tr.tabIndex = 0;
+        tr.dataset.focus = "row:" + id;
+        const go = () => opts.onOpen(row);
+        tr.addEventListener("click", (e) => {
+          if (e.target.closest("button, a, input, select")) return;
+          go();
+        });
+        tr.addEventListener("keydown", (e) => {
+          if (e.target !== tr) return;
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            go();
+          }
+        });
+        if (opts.opened) tr.setAttribute("aria-expanded", String(open));
+      }
+      for (const col of columns) {
+        const content = col.cell(row);
+        tr.appendChild(add(el("td", col.className ?? ""), ...Array.isArray(content) ? content : [content]));
+      }
+      tbody.appendChild(tr);
+      if (open && opts.detail) {
+        const dr = el("tr", "tbl-detail");
+        const td = el("td");
+        td.colSpan = columns.length;
+        add(td, opts.detail(row));
+        dr.appendChild(td);
+        tbody.appendChild(dr);
+      }
+    }
+    if (!opts.rows.length) {
+      const tr = el("tr", "tbl-none");
+      const td = el("td", "faint", opts.empty ?? "Nothing matches these filters.");
+      td.colSpan = columns.length;
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+    }
+    add(table, thead, tbody);
+    const wrap = el("div", "tbl-wrap");
+    wrap.dataset.scroll = "table";
+    wrap.appendChild(table);
+    return wrap;
+  }
+  function filterControl(col, opts) {
+    const value = opts.state.filters[col.id] ?? "";
+    const set = (v) => {
+      if (v) opts.state.filters[col.id] = v;
+      else delete opts.state.filters[col.id];
+      opts.onChange();
+    };
+    if (col.pick) {
+      const values = [...new Set(opts.all.map((r) => col.filter(r)))].filter(Boolean).sort((a, b) => compareKeys(a, b));
+      if (value && !values.includes(value)) values.unshift(value);
+      const s = el("select", "tf-select" + (value ? " on" : ""));
+      s.dataset.focus = "tf:" + col.id;
+      s.setAttribute("aria-label", `Filter ${col.label || "health"}`);
+      const any = el("option", "", "any");
+      any.value = "";
+      s.appendChild(any);
+      for (const v of values) {
+        const o = el("option", "", v);
+        o.value = v;
+        o.selected = v === value;
+        s.appendChild(o);
+      }
+      s.addEventListener("change", () => set(s.value));
+      return s;
+    }
+    const input = el("input", "tf-input" + (value ? " on" : ""));
+    input.type = "search";
+    input.value = value;
+    input.placeholder = "filter";
+    input.dataset.focus = "tf:" + col.id;
+    input.setAttribute("aria-label", `Filter ${col.label}`);
+    input.addEventListener("input", () => set(input.value));
+    return input;
+  }
+  function clearFilters(state, onChange) {
+    if (!filtering(state)) return null;
+    const b = el("button", "ghost small");
+    b.type = "button";
+    b.dataset.focus = "tf-clear";
+    add(b, icon("close"), el("span", "", "Clear column filters"));
+    b.addEventListener("click", () => {
+      state.filters = {};
+      onChange();
+    });
+    return b;
+  }
+  function layoutSwitch(current, onPick) {
+    const group = el("div", "seg layout-switch");
+    group.setAttribute("role", "group");
+    group.setAttribute("aria-label", "Show as");
+    for (const [value, label2, ico] of [
+      ["cards", "Cards", "grid"],
+      ["table", "Table", "rows"]
+    ]) {
+      const b = el("button", "seg-btn" + (current === value ? " on" : ""));
+      b.type = "button";
+      b.dataset.focus = "layout:" + value;
+      b.setAttribute("aria-pressed", String(current === value));
+      b.title = `Show as ${label2.toLowerCase()}`;
+      add(b, icon(ico), el("span", "", label2));
+      b.addEventListener("click", () => {
+        if (current !== value) onPick(value);
+      });
+      group.appendChild(b);
+    }
+    return group;
+  }
+  async function savedLayout(view, fallback) {
+    const saved = await store.get(`layout:${view}`);
+    return saved === "cards" || saved === "table" ? saved : fallback;
+  }
+  function saveLayout(view, layout) {
+    void store.set(`layout:${view}`, layout);
+  }
+
   // src/pages/network.ts
   start("network", (_ctx, root) => {
     const hash = readHash();
-    const state = { q: hash.q ?? "", ns: hash.ns ?? "", sel: hash.sel ?? "", open: new Set((hash.open ?? "").split(",").filter(Boolean)) };
+    const state = {
+      q: hash.q ?? "",
+      ns: hash.ns ?? "",
+      sel: hash.sel ?? "",
+      open: new Set((hash.open ?? "").split(",").filter(Boolean)),
+      layout: "cards",
+      table: readTable(hash, "health", false),
+      /** Table rows drawn open. */
+      rows: new Set((hash.rows ?? "").split("|").filter(Boolean))
+    };
     let model = null;
+    void savedLayout("network", "cards").then((layout) => {
+      state.layout = layout;
+      redraw();
+    });
     const redraw = politely(root, draw);
     liveModel({
       onModel: (m) => {
@@ -2089,12 +2340,13 @@
     void takeFocus("network").then((id) => {
       if (!id) return;
       state.sel = id;
+      state.rows.add(id);
       save();
       redraw();
       requestAnimationFrame(() => document.getElementById("nn-" + cssId(id))?.scrollIntoView({ block: "center" }));
     });
     function save() {
-      writeHash({ q: state.q, ns: state.ns, sel: state.sel, open: [...state.open].join(",") });
+      writeHash({ q: state.q, ns: state.ns, sel: state.sel, open: [...state.open].join(","), rows: [...state.rows].slice(0, 8).join("|"), ...tableHash(state.table, "health", false) });
     }
     function draw() {
       if (!model) return;
@@ -2133,18 +2385,132 @@
           redraw();
         }, "Namespace") : null
       );
+      add(
+        toolbar,
+        el("span", "push"),
+        state.layout === "table" ? clearFilters(state.table, changed) : null,
+        layoutSwitch(state.layout, (layout) => {
+          state.layout = layout;
+          saveLayout("network", layout);
+          redraw();
+        })
+      );
       const q = state.q.trim().toLowerCase();
-      const shown = m.networks.filter((n) => (!state.ns || n.namespace === state.ns) && (!q || [n.name, n.namespace, n.ipv4, n.ipv6, n.egress, String(n.vlan ?? ""), n.provisioning, ...n.clusters.map((c) => c.name)].join(" ").toLowerCase().includes(q))).sort((a, b) => toneRank(b.health) - toneRank(a.health) || a.namespace.localeCompare(b.namespace) || a.name.localeCompare(b.name));
-      const grid = el("div", "ngrid");
-      for (const n of shown) grid.appendChild(netCard(n, m));
+      const byHealth = (a, b) => toneRank(b.health) - toneRank(a.health) || a.namespace.localeCompare(b.namespace) || a.name.localeCompare(b.name);
+      const shown = m.networks.filter(
+        (n) => (!state.ns || n.namespace === state.ns) && (!q || [n.name, n.namespace, n.ipv4, n.ipv6, n.egress, String(n.vlan ?? ""), n.provisioning, ...n.clusters.map((c) => c.name)].join(" ").toLowerCase().includes(q))
+      );
+      let body;
+      if (!m.networks.length) body = empty("No NetworkNamespaces in this supervisor yet.", "", "network");
+      else if (state.layout === "table") {
+        body = dataTable({
+          columns: COLUMNS,
+          all: m.networks,
+          rows: sortRows(filterRows(shown, COLUMNS, state.table), COLUMNS, state.table, byHealth),
+          key: (n) => n.id,
+          state: state.table,
+          onChange: changed,
+          onOpen: (n) => {
+            if (state.rows.has(n.id)) state.rows.delete(n.id);
+            else state.rows.add(n.id);
+            changed();
+          },
+          opened: state.rows,
+          detail: (n) => netCard(n, m),
+          rowClass: (n) => n.health,
+          className: "ntable",
+          empty: "No network namespace matches. Try clearing the filters."
+        });
+      } else if (!shown.length) body = empty("No network namespace matches.", "", "network");
+      else {
+        body = el("div", "ngrid");
+        for (const n of shown.sort(byHealth)) body.appendChild(netCard(n, m));
+      }
       root.replaceChildren(
         navBar("network", badgesFor(m)),
         pageHead("Network", `${plural(m.networks.length, "network namespace")} · ${plural(m.snapshot.ipAllocations.length, "address", "addresses")} handed out`, "network"),
         tiles,
         toolbar,
-        shown.length ? grid : empty(m.networks.length ? "No network namespace matches." : "No NetworkNamespaces in this supervisor yet.", "", "network")
+        body
       );
     }
+    function changed() {
+      save();
+      redraw();
+    }
+    const COLUMNS = [
+      { id: "health", label: "", className: "col-dot", sort: (n) => -toneRank(n.health), filter: (n) => HEALTH_WORD[n.health] ?? n.health, pick: true, cell: (n) => dot(n.health) },
+      {
+        id: "name",
+        label: "Network",
+        className: "mname",
+        sort: (n) => n.name,
+        filter: (n) => n.name,
+        cell: (n) => [el("div", "", n.name), n.issues.length ? el("div", "mname-issue " + n.issues[0].tone, n.issues[0].title) : el("div", "faint small", n.namespace)]
+      },
+      { id: "namespace", label: "Namespace", sort: (n) => n.namespace, filter: (n) => n.namespace, pick: true, cell: (n) => el("span", "small", n.namespace) },
+      {
+        id: "phase",
+        label: "Provisioning",
+        sort: (n) => n.provisioningPhase || n.phase,
+        filter: (n) => n.provisioningPhase || n.phase || "no status",
+        pick: true,
+        cell: (n) => phaseChip(n.provisioningPhase || n.phase, n.provisioningPhase === "Error" ? "error" : n.provisioningPhase === "Ready" ? "ok" : n.provisioningPhase ? "info" : n.tone)
+      },
+      { id: "by", label: "Provisioned by", sort: (n) => n.provisioning, filter: (n) => n.provisioning, pick: true, cell: (n) => el("span", "small", n.provisioning || "—") },
+      { id: "vlan", label: "VLAN", className: "num", sort: (n) => n.vlan, filter: (n) => n.vlan !== null ? String(n.vlan) : "", cell: (n) => el("span", "small mono", n.vlan !== null ? String(n.vlan) : "—") },
+      { id: "ipv4", label: "Prefix", className: "mono", sort: (n) => ipKey(n.ipv4.split("/")[0]), filter: (n) => n.ipv4, cell: (n) => el("span", "small", n.ipv4 || "—") },
+      { id: "ipv6", label: "IPv6", className: "mono", sort: (n) => n.ipv6, filter: (n) => n.ipv6, cell: (n) => el("span", "small" + (n.ipv6 ? "" : " faint"), n.ipv6 || "—") },
+      {
+        id: "gateway",
+        label: "Gateway",
+        className: "mono",
+        sort: (n) => ipKey(n.obj.spec?.ipAllocation?.static?.ipv4Gateway),
+        filter: (n) => n.obj.spec?.ipAllocation?.static?.ipv4Gateway ?? "",
+        cell: (n) => el("span", "small", n.obj.spec?.ipAllocation?.static?.ipv4Gateway || "—")
+      },
+      { id: "egress", label: "Egress", className: "mono", sort: (n) => n.egress, filter: (n) => n.egress, cell: (n) => el("span", "small" + (n.egress ? "" : " faint"), n.egress || "—") },
+      {
+        id: "addresses",
+        label: "Addresses",
+        sort: (n) => `${n.allocationType} ${n.allocationProvider}`,
+        filter: (n) => [n.allocationType, n.allocationProvider].filter(Boolean).join(" · "),
+        pick: true,
+        cell: (n) => [chip(n.allocationType || "—", n.allocationType === "static" ? "info" : ""), n.allocationProvider ? el("span", "faint small", " " + n.allocationProvider) : null]
+      },
+      {
+        id: "usage",
+        label: "In use",
+        title: "Static addresses handed out, of the pool",
+        sort: (n) => n.ipTotal ? (n.ipUsed ?? 0) / n.ipTotal : null,
+        cell: (n) => {
+          if (!n.ipTotal) return el("span", "faint small", n.ipUsed !== null ? String(n.ipUsed) : "—");
+          const used = n.ipUsed ?? 0;
+          const share = used / n.ipTotal;
+          return meter(used, n.ipTotal, { tone: share >= 1 ? "error" : share >= 0.9 ? "warn" : "ok", text: `${used}/${n.ipTotal}` });
+        }
+      },
+      { id: "leases", label: "Leases", className: "num", title: "IP allocations", sort: (n) => n.allocations.length, cell: (n) => el("span", "small", String(n.allocations.length)) },
+      { id: "configs", label: "Configs", className: "num", title: "Network configurations: one per machine", sort: (n) => n.configurations.length, cell: (n) => el("span", "small", String(n.configurations.length)) },
+      {
+        id: "clusters",
+        label: "Clusters",
+        sort: (n) => n.clusters.length,
+        filter: (n) => n.clusters.map((c) => c.name).join(" "),
+        cell: (n) => {
+          if (!n.clusters.length) return el("span", "faint small", "none");
+          const box = el("span", "cell-chips");
+          for (const c of n.clusters.slice(0, 3)) {
+            const b = button(c.name, "chipbtn", "cluster", () => void goTo("clusters", c.id));
+            b.classList.add(c.health);
+            box.appendChild(b);
+          }
+          if (n.clusters.length > 3) box.appendChild(el("span", "faint small", `+${n.clusters.length - 3}`));
+          return box;
+        }
+      },
+      { id: "dc", label: "Datacenter", sort: (n) => n.obj.status?.datacenterIdentifier ?? "", filter: (n) => n.obj.status?.datacenterIdentifier ?? "", pick: true, cell: (n) => el("span", "small", n.obj.status?.datacenterIdentifier || "—") }
+    ];
     function netCard(n, m) {
       const card = el("section", `ncard ${n.health}${state.sel === n.id ? " focus" : ""}`);
       card.id = "nn-" + cssId(n.id);
@@ -2260,6 +2626,7 @@
       return add(el("div", "tbl-wrap"), t);
     }
   });
+  var HEALTH_WORD = { error: "failing", warn: "needs a look", info: "working", ok: "healthy", muted: "unknown" };
   function cssId(id) {
     return id.replace(/[^a-zA-Z0-9_-]/g, "_");
   }

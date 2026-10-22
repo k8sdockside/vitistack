@@ -1,6 +1,9 @@
 // Upgrades: where every cluster stands against the Kubernetes release
 // calendar and the Talos support matrix, and the way forward for each --
-// with buttons that set the operator's target annotations.
+// with buttons that set the operator's target annotations. Shown as cards,
+// or as a table of what each cluster runs that sorts and filters by any
+// column, with a row opening on every node's versions and the upgrade card.
+// Which of the two was shown last is remembered for this cluster.
 
 import {
     CATALOGUE_AS_OF,
@@ -11,18 +14,19 @@ import {
     talosMinors,
     talosSupports,
 } from '../model/catalogue';
-import type { Tone } from '../model/health';
-import type { ClusterView, Model } from '../model/model';
+import { toneRank, type Tone } from '../model/health';
+import type { ClusterView, MachineView, Model } from '../model/model';
 import type { UpgradePlan, Verdict } from '../model/upgrades';
-import { minorText, parseVersion, sameMinor, type Version } from '../model/version';
+import { kubeText, minorText, parseVersion, sameMinor, talosText, type Version } from '../model/version';
 import { badgesFor, navBar, pageHead, start } from '../ui/chrome';
+import { clearFilters, dataTable, filterRows, layoutSwitch, readTable, savedLayout, saveLayout, sortRows, tableHash, type Column, type Layout } from '../ui/datatable';
 import { add, chip, el, linkButton, svg, svgText } from '../ui/dom';
-import { dateText, monthText, plural } from '../ui/format';
+import { bytes, dateText, monthText, plural } from '../ui/format';
 import { liveModel } from '../ui/load';
 import { goTo, takeFocus } from '../ui/nav';
 import { politely, readHash, writeHash } from '../ui/page';
 import { upgradeCard } from '../ui/upgrade-ui';
-import { card, dot, empty, searchBox, segmented, tile } from '../ui/widgets';
+import { card, dot, empty, phaseChip, searchBox, segmented, supportChip, tile, versionPill } from '../ui/widgets';
 
 type Filter = 'all' | Verdict | 'eol';
 
@@ -30,8 +34,19 @@ const ORDER: Record<Verdict, number> = { failed: 0, 'in-progress': 1, blocked: 2
 
 start('upgrades', (ctx, root) => {
     const hash = readHash();
-    const state = { filter: (hash.show ?? 'all') as Filter, q: hash.q ?? '', focus: hash.focus ?? '' };
+    const state = {
+        filter: (hash.show ?? 'all') as Filter,
+        q: hash.q ?? '',
+        focus: hash.focus ?? '',
+        layout: 'cards' as Layout,
+        table: readTable(hash, 'verdict', false),
+        open: new Set((hash.open ?? '').split('|').filter(Boolean)),
+    };
     let model: Model | null = null;
+    void savedLayout('upgrades', 'cards').then((layout) => {
+        state.layout = layout;
+        redraw();
+    });
 
     const redraw = politely(root, draw);
     const live = liveModel({
@@ -43,13 +58,20 @@ start('upgrades', (ctx, root) => {
     void takeFocus('upgrades').then((id) => {
         if (!id) return;
         state.focus = id;
+        state.open.add(id);
         save();
         redraw();
         requestAnimationFrame(() => document.getElementById('up-' + cssId(id))?.scrollIntoView({ block: 'center' }));
     });
 
     function save(): void {
-        writeHash({ show: state.filter === 'all' ? '' : state.filter, q: state.q, focus: state.focus });
+        writeHash({
+            show: state.filter === 'all' ? '' : state.filter,
+            q: state.q,
+            focus: state.focus,
+            open: [...state.open].slice(0, 8).join('|'),
+            ...tableHash(state.table, 'verdict', false),
+        });
     }
 
     function draw(): void {
@@ -111,8 +133,51 @@ start('upgrades', (ctx, root) => {
             })
             .sort((a, b) => ORDER[a.verdict] - ORDER[b.verdict] || (eol(b) ? 1 : 0) - (eol(a) ? 1 : 0) || a.cluster.name.localeCompare(b.cluster.name));
 
-        const list = el('div', 'uplist');
-        for (const p of shown) list.appendChild(planRow(p));
+        add(
+            toolbar,
+            el('span', 'push'),
+            state.layout === 'table'
+                ? clearFilters(state.table, () => {
+                      save();
+                      redraw();
+                  })
+                : null,
+            layoutSwitch(state.layout, (layout) => {
+                state.layout = layout;
+                saveLayout('upgrades', layout);
+                redraw();
+            }),
+        );
+
+        let list: HTMLElement;
+        if (state.layout === 'table') {
+            const rows = sortRows(filterRows(shown, COLUMNS, state.table), COLUMNS, state.table, (a, b) => a.cluster.name.localeCompare(b.cluster.name));
+            list = dataTable({
+                columns: COLUMNS,
+                all: plans,
+                rows,
+                key: (p) => p.cluster.id,
+                state: state.table,
+                onChange: () => {
+                    save();
+                    redraw();
+                },
+                onOpen: (p) => {
+                    if (state.open.has(p.cluster.id)) state.open.delete(p.cluster.id);
+                    else state.open.add(p.cluster.id);
+                    save();
+                    redraw();
+                },
+                opened: state.open,
+                detail: (p) => add(el('div', 'runs'), runsPanel(p.cluster), upgradeCard(p, { write: ctx.write, onChanged: live.refresh })),
+                rowClass: (p) => p.cluster.health + (state.focus === p.cluster.id ? ' focus' : ''),
+                className: 'utable',
+                empty: 'No cluster matches. Try clearing the filters.',
+            });
+        } else {
+            list = el('div', 'uplist');
+            for (const p of shown) list.appendChild(planRow(p));
+        }
 
         const note = el('p', 'faint small upnote');
         add(
@@ -130,7 +195,7 @@ start('upgrades', (ctx, root) => {
             landscape,
             toolbar,
             note,
-            shown.length ? list : empty(plans.length ? 'No cluster matches.' : 'No clusters yet.', '', 'upgrade'),
+            shown.length || (state.layout === 'table' && plans.length) ? list : empty(plans.length ? 'No cluster matches.' : 'No clusters yet.', '', 'upgrade'),
         );
     }
 
@@ -156,6 +221,165 @@ start('upgrades', (ctx, root) => {
         );
         add(row, head, upgradeCard(p, { write: ctx.write, onChanged: live.refresh }));
         return row;
+    }
+
+    // ----- the table -------------------------------------------------------------------------
+
+    const COLUMNS: Column<UpgradePlan>[] = [
+        { id: 'health', label: '', className: 'col-dot', sort: (p) => -toneRank(p.cluster.health), cell: (p) => dot(p.cluster.health) },
+        {
+            id: 'cluster',
+            label: 'Cluster',
+            sort: (p) => p.cluster.name,
+            filter: (p) => `${p.cluster.name} ${p.cluster.namespace}`,
+            cell: (p) => [linkButton(p.cluster.name, () => void goTo('clusters', p.cluster.id), 'Open on the Clusters page', 'strong'), el('div', 'faint small', p.cluster.namespace)],
+        },
+        { id: 'env', label: 'Environment', sort: (p) => p.cluster.environment, filter: (p) => p.cluster.environment, pick: true, cell: (p) => (p.cluster.environment ? chip(p.cluster.environment, 'info') : el('span', 'faint', '—')) },
+        {
+            id: 'kubernetes',
+            label: 'Kubernetes',
+            className: 'nowrap',
+            title: 'What the cluster runs, and where that was read from',
+            sort: (p) => versionKey(p.kubernetes),
+            filter: (p) => (p.kubernetes ? kubeText(p.kubernetes) : ''),
+            pick: true,
+            cell: (p) => [versionPill('kubernetes', p.kubernetes), p.cluster.versions.kubernetesFrom ? el('div', 'faint small', `from ${FROM_WORD[p.cluster.versions.kubernetesFrom] ?? p.cluster.versions.kubernetesFrom}`) : null],
+        },
+        {
+            id: 'desired',
+            label: 'Asked for',
+            className: 'nowrap',
+            title: 'The Kubernetes version spec.topology asks for',
+            sort: (p) => versionKey(p.cluster.versions.desiredKubernetes),
+            filter: (p) => (p.cluster.versions.desiredKubernetes ? kubeText(p.cluster.versions.desiredKubernetes) : ''),
+            pick: true,
+            cell: (p) => {
+                const want = p.cluster.versions.desiredKubernetes;
+                if (!want) return el('span', 'faint', '—');
+                const differs = p.kubernetes && kubeText(want) !== kubeText(p.kubernetes);
+                return el('span', 'small mono' + (differs ? ' mixed' : ''), kubeText(want));
+            },
+        },
+        {
+            id: 'talos',
+            label: 'Talos',
+            className: 'nowrap',
+            sort: (p) => versionKey(p.talos),
+            filter: (p) => (p.talos ? talosText(p.talos) : p.isTalos ? '' : 'not Talos'),
+            pick: true,
+            cell: (p) => (p.isTalos || p.talos ? versionPill('talos', p.talos) : el('span', 'faint small', 'not Talos')),
+        },
+        {
+            id: 'nodes-talos',
+            label: 'Talos on nodes',
+            title: 'Every Talos version the machines report, and on how many',
+            sort: (p) => p.cluster.versions.machineTalos.length,
+            filter: (p) => spread(p.cluster.machines).map(([v]) => v).join(' '),
+            cell: (p) => spreadCell(p.cluster.machines),
+        },
+        {
+            id: 'nodes',
+            label: 'Nodes',
+            className: 'nowrap',
+            title: 'Control planes + workers',
+            sort: (p) => p.cluster.machines.length,
+            cell: (p) => el('span', 'small', `${p.cluster.controlPlanes.length} + ${p.cluster.workers.length}`),
+        },
+        {
+            id: 'support',
+            label: 'Support',
+            className: 'nowrap',
+            sort: (p) => p.support?.daysLeft ?? null,
+            filter: (p) => SUPPORT_WORD[p.support?.state ?? ''] ?? '',
+            pick: true,
+            cell: (p) => supportChip(p.support) ?? el('span', 'faint', '—'),
+        },
+        {
+            id: 'verdict',
+            label: 'Upgrade',
+            sort: (p) => ORDER[p.verdict] * 10 + ((p.support?.state === 'end-of-life') ? 0 : 1),
+            filter: (p) => VERDICT_WORD[p.verdict],
+            pick: true,
+            cell: (p) => chip(VERDICT_WORD[p.verdict], p.tone, p.verdict === 'current' ? 'check' : 'upgrade', p.headline),
+        },
+        {
+            id: 'next',
+            label: 'Next step',
+            className: 'nowrap',
+            sort: (p) => (p.path[0] ? `${p.path[0].kind} ${versionKey(p.path[0].to)}` : ''),
+            filter: (p) => (p.path[0] ? stepWord(p.path[0].kind, p.path[0].to) : p.stopsBecause ? 'waiting' : ''),
+            cell: (p) => (p.path[0] ? el('span', 'small mono', stepWord(p.path[0].kind, p.path[0].to)) : el('span', 'faint small', p.stopsBecause ? 'waiting' : '—')),
+        },
+        {
+            id: 'hops',
+            label: 'Hops',
+            className: 'num',
+            title: 'Upgrades between here and the newest release known',
+            sort: (p) => p.path.length,
+            cell: (p) => el('span', 'small', String(p.path.length)),
+        },
+        {
+            id: 'running',
+            label: 'Running now',
+            title: 'An upgrade the operator is carrying out',
+            sort: (p) => (p.inFlight ? p.inFlight.status : ''),
+            filter: (p) => (p.inFlight ? `${p.inFlight.kind} ${p.inFlight.target} ${p.inFlight.status}` : ''),
+            cell: (p) => {
+                const f = p.inFlight;
+                if (!f) return el('span', 'faint small', '—');
+                return add(el('span', 'small'), phaseChip(f.status), ` ${f.kind === 'talos' ? 'Talos' : 'Kubernetes'} ${f.target}`, f.progress ? el('span', 'faint', ` · ${f.progress.done}/${f.progress.total}`) : null);
+            },
+        },
+    ];
+
+    /** What a cluster runs: its versions, then node by node. */
+    function runsPanel(c: ClusterView): HTMLElement {
+        const box = card('What it runs', { icon: 'layers' });
+        const versions = el('div', 'runs-versions');
+        add(
+            versions,
+            versionPill('kubernetes', c.versions.kubernetes, { prefix: 'k8s running' }),
+            c.versions.desiredKubernetes ? versionPill('kubernetes', c.versions.desiredKubernetes, { prefix: 'k8s asked for' }) : null,
+            c.versions.talos ? versionPill('talos', c.versions.talos) : null,
+            c.upgrade.kubernetes.target ? chip(`Kubernetes target ${kubeText(c.upgrade.kubernetes.target)}`, 'info', 'target') : null,
+            c.upgrade.talos.target ? chip(`Talos target ${talosText(c.upgrade.talos.target)}`, 'info', 'target') : null,
+            c.upgrade.failedNodes.length ? chip(`failed on ${c.upgrade.failedNodes.join(', ')}`, 'error', 'failed') : null,
+        );
+        box.body.appendChild(versions);
+        if (!c.machines.length) {
+            box.body.appendChild(el('p', 'faint small', 'No machines found for this cluster.'));
+            return box.root;
+        }
+        const nodes = [...c.machines].sort((a, b) => (a.role === b.role ? a.label.localeCompare(b.label) : a.role === 'control-plane' ? -1 : 1));
+        const newest = spread(c.machines)[0]?.[0] ?? '';
+        const table = el('table', 'tbl small');
+        const head = el('tr');
+        for (const h of ['', 'Machine', 'Role', 'Node', 'Talos', 'OS', 'Kernel', 'Arch', 'Size', 'Phase']) head.appendChild(el('th', '', h));
+        const thead = el('thead');
+        thead.appendChild(head);
+        const body = el('tbody');
+        for (const x of nodes) {
+            const t = x.talos ? talosText(x.talos) : '';
+            add(
+                body,
+                add(
+                    el('tr'),
+                    add(el('td', 'col-dot'), dot(x.health)),
+                    el('td', '', x.label),
+                    add(el('td'), x.role === 'control-plane' ? chip('control plane', 'info') : el('span', 'small', x.poolName || x.role || 'worker')),
+                    el('td', 'small', x.node || '—'),
+                    el('td', 'small mono' + (t && newest && t !== newest ? ' mixed' : ''), t || '—'),
+                    el('td', 'small', [x.os, x.osVersion].filter(Boolean).join(' ') || '—'),
+                    el('td', 'small mono', x.kernel || '—'),
+                    el('td', 'small', x.architecture || '—'),
+                    el('td', 'small', [x.cpus ? `${x.cpus} vCPU` : '', x.memory ? bytes(x.memory) : ''].filter(Boolean).join(' · ') || x.className || '—'),
+                    add(el('td'), phaseChip(x.phase, x.tone)),
+                ),
+            );
+        }
+        add(table, thead, body);
+        box.body.appendChild(add(el('div', 'tbl-wrap'), table));
+        return box.root;
     }
 
     // ----- the release calendar -------------------------------------------------------------------------
@@ -291,6 +515,40 @@ start('upgrades', (ctx, root) => {
         return c.root;
     }
 });
+
+const FROM_WORD: Record<string, string> = { operator: 'the operator', status: 'status', spec: 'spec' };
+const SUPPORT_WORD: Record<string, string> = { supported: 'supported', ending: 'ending soon', 'end-of-life': 'end of life', unknown: 'unknown' };
+const VERDICT_WORD: Record<Verdict, string> = { failed: 'failed', blocked: 'blocked', 'in-progress': 'in progress', available: 'available', current: 'up to date', unknown: 'unknown' };
+
+function versionKey(v: Version | null | undefined): number | null {
+    return v ? v.major * 1_000_000 + v.minor * 1_000 + (v.hasPatch ? v.patch : 0) : null;
+}
+
+function stepWord(kind: string, v: Version): string {
+    return kind === 'talos' ? `Talos ${talosText(v)}` : `Kubernetes ${kubeText(v)}`;
+}
+
+/** The Talos versions a cluster's machines report, with how many report each, newest first. */
+function spread(machines: readonly MachineView[]): [string, number][] {
+    const counts = new Map<string, { n: number; key: number }>();
+    for (const m of machines) {
+        if (!m.talos) continue;
+        const text = talosText(m.talos);
+        const e = counts.get(text) ?? { n: 0, key: versionKey(m.talos) ?? 0 };
+        e.n++;
+        counts.set(text, e);
+    }
+    return [...counts.entries()].sort((a, b) => b[1].key - a[1].key).map(([t, e]) => [t, e.n]);
+}
+
+function spreadCell(machines: readonly MachineView[]): HTMLElement {
+    const list = spread(machines);
+    const node = el('span', 'ver-spread');
+    if (!list.length) return add(node, el('span', 'faint small', '—'));
+    for (const [v, n] of list) add(node, add(el('span', 'small mono' + (list.length > 1 ? ' mixed' : '')), v, el('span', 'vcount', `×${n}`)));
+    if (list.length > 1) node.title = 'The nodes run different Talos versions: an upgrade is under way, or one stopped part-way';
+    return node;
+}
 
 function cssId(id: string): string {
     return id.replace(/[^a-zA-Z0-9_-]/g, '_');

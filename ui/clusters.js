@@ -1544,6 +1544,8 @@
     edit: ["M4 20h4L19 9l-4-4L4 16z", "M14 6l4 4"],
     chevron: ["M9.5 6l6 6-6 6"],
     "chevron-down": ["M6 9.5l6 6 6-6"],
+    "chevron-up": ["M6 14.5l6-6 6 6"],
+    sort: ["M8 4v16", "M4.5 7.5 8 4l3.5 3.5", "M16 20V4", "M12.5 16.5 16 20l3.5-3.5"],
     "arrow-right": ["M5 12h14", "M13 6l6 6-6 6"],
     upgrade: ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z", "M12 16.5V8", "M8.5 11.5 12 8l3.5 3.5"],
     refresh: ["M20.5 12a8.5 8.5 0 1 1-2.6-6.1", "M20.5 4v5h-5"],
@@ -2341,6 +2343,209 @@
     }).catch((err) => banner.show(err));
   }
 
+  // src/ui/datatable.ts
+  function readTable(hash, sort, desc) {
+    const filters = {};
+    for (const [k, v] of Object.entries(hash)) if (k.startsWith("f.") && v) filters[k.slice(2)] = v;
+    return { sort: hash.sort || sort, desc: hash.desc ? hash.desc === "1" : desc, filters };
+  }
+  function tableHash(state, sort, desc) {
+    const out = { sort: state.sort === sort ? "" : state.sort, desc: state.desc === desc ? "" : state.desc ? "1" : "0" };
+    for (const [k, v] of Object.entries(state.filters)) if (v) out["f." + k] = v;
+    return out;
+  }
+  function filtering(state) {
+    return Object.values(state.filters).some(Boolean);
+  }
+  function filterRows(rows, columns, state) {
+    const active = columns.filter((c) => c.filter && state.filters[c.id]);
+    if (!active.length) return [...rows];
+    return rows.filter(
+      (row) => active.every((c) => {
+        const want = state.filters[c.id];
+        const have = c.filter(row);
+        if (c.pick) return have === want;
+        const text = have.toLowerCase();
+        return want.toLowerCase().split(/\s+/).filter(Boolean).every((w) => text.includes(w));
+      })
+    );
+  }
+  function sortRows(rows, columns, state, tie = () => 0) {
+    const col = columns.find((c) => c.id === state.sort && c.sort);
+    if (!col) return rows.sort(tie);
+    const key = col.sort;
+    return rows.sort((a, b) => {
+      const r = compareKeys(key(a), key(b));
+      return (state.desc ? -r : r) || tie(a, b);
+    });
+  }
+  function compareKeys(a, b) {
+    const blankA = a === null || a === void 0 || a === "";
+    const blankB = b === null || b === void 0 || b === "";
+    if (blankA || blankB) return blankA === blankB ? 0 : blankA ? 1 : -1;
+    if (typeof a === "number" && typeof b === "number") return a - b;
+    return String(a).localeCompare(String(b), void 0, { numeric: true, sensitivity: "base" });
+  }
+  function dataTable(opts) {
+    const { columns, state } = opts;
+    const table = el("table", "tbl dtable" + (opts.className ? " " + opts.className : ""));
+    const head2 = el("tr");
+    for (const col of columns) {
+      const th = el("th", col.className ?? "");
+      if (col.title) th.title = col.title;
+      if (col.sort) {
+        const on = state.sort === col.id;
+        const b = el("button", "th-sort" + (on ? " on" : ""));
+        b.type = "button";
+        b.dataset.focus = "sort:" + col.id;
+        add(b, el("span", "", col.label || "Health"), icon(on ? state.desc ? "chevron-down" : "chevron-up" : "sort", "th-dir"));
+        if (!col.label) b.classList.add("sr-label");
+        b.setAttribute("aria-label", `Sort by ${col.label || "health"}`);
+        th.setAttribute("aria-sort", on ? state.desc ? "descending" : "ascending" : "none");
+        b.addEventListener("click", () => {
+          if (state.sort === col.id) state.desc = !state.desc;
+          else {
+            state.sort = col.id;
+            state.desc = false;
+          }
+          opts.onChange();
+        });
+        th.appendChild(b);
+      } else th.textContent = col.label;
+      head2.appendChild(th);
+    }
+    const filters = el("tr", "tbl-filters");
+    for (const col of columns) {
+      const td = el("th", col.className ?? "");
+      if (col.filter) td.appendChild(filterControl(col, opts));
+      filters.appendChild(td);
+    }
+    const thead = el("thead");
+    add(thead, head2, filters);
+    const tbody = el("tbody");
+    for (const row of opts.rows) {
+      const id = opts.key(row);
+      const open = opts.opened?.has(id) ?? false;
+      const tr = el("tr", [opts.rowClass?.(row) ?? "", opts.onOpen ? "clickable" : "", opts.selected === id ? "sel" : "", open ? "open" : ""].filter(Boolean).join(" "));
+      if (opts.onOpen) {
+        tr.tabIndex = 0;
+        tr.dataset.focus = "row:" + id;
+        const go = () => opts.onOpen(row);
+        tr.addEventListener("click", (e) => {
+          if (e.target.closest("button, a, input, select")) return;
+          go();
+        });
+        tr.addEventListener("keydown", (e) => {
+          if (e.target !== tr) return;
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            go();
+          }
+        });
+        if (opts.opened) tr.setAttribute("aria-expanded", String(open));
+      }
+      for (const col of columns) {
+        const content = col.cell(row);
+        tr.appendChild(add(el("td", col.className ?? ""), ...Array.isArray(content) ? content : [content]));
+      }
+      tbody.appendChild(tr);
+      if (open && opts.detail) {
+        const dr = el("tr", "tbl-detail");
+        const td = el("td");
+        td.colSpan = columns.length;
+        add(td, opts.detail(row));
+        dr.appendChild(td);
+        tbody.appendChild(dr);
+      }
+    }
+    if (!opts.rows.length) {
+      const tr = el("tr", "tbl-none");
+      const td = el("td", "faint", opts.empty ?? "Nothing matches these filters.");
+      td.colSpan = columns.length;
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+    }
+    add(table, thead, tbody);
+    const wrap = el("div", "tbl-wrap");
+    wrap.dataset.scroll = "table";
+    wrap.appendChild(table);
+    return wrap;
+  }
+  function filterControl(col, opts) {
+    const value = opts.state.filters[col.id] ?? "";
+    const set = (v) => {
+      if (v) opts.state.filters[col.id] = v;
+      else delete opts.state.filters[col.id];
+      opts.onChange();
+    };
+    if (col.pick) {
+      const values = [...new Set(opts.all.map((r) => col.filter(r)))].filter(Boolean).sort((a, b) => compareKeys(a, b));
+      if (value && !values.includes(value)) values.unshift(value);
+      const s = el("select", "tf-select" + (value ? " on" : ""));
+      s.dataset.focus = "tf:" + col.id;
+      s.setAttribute("aria-label", `Filter ${col.label || "health"}`);
+      const any = el("option", "", "any");
+      any.value = "";
+      s.appendChild(any);
+      for (const v of values) {
+        const o = el("option", "", v);
+        o.value = v;
+        o.selected = v === value;
+        s.appendChild(o);
+      }
+      s.addEventListener("change", () => set(s.value));
+      return s;
+    }
+    const input = el("input", "tf-input" + (value ? " on" : ""));
+    input.type = "search";
+    input.value = value;
+    input.placeholder = "filter";
+    input.dataset.focus = "tf:" + col.id;
+    input.setAttribute("aria-label", `Filter ${col.label}`);
+    input.addEventListener("input", () => set(input.value));
+    return input;
+  }
+  function clearFilters(state, onChange) {
+    if (!filtering(state)) return null;
+    const b = el("button", "ghost small");
+    b.type = "button";
+    b.dataset.focus = "tf-clear";
+    add(b, icon("close"), el("span", "", "Clear column filters"));
+    b.addEventListener("click", () => {
+      state.filters = {};
+      onChange();
+    });
+    return b;
+  }
+  function layoutSwitch(current, onPick) {
+    const group = el("div", "seg layout-switch");
+    group.setAttribute("role", "group");
+    group.setAttribute("aria-label", "Show as");
+    for (const [value, label2, ico] of [
+      ["cards", "Cards", "grid"],
+      ["table", "Table", "rows"]
+    ]) {
+      const b = el("button", "seg-btn" + (current === value ? " on" : ""));
+      b.type = "button";
+      b.dataset.focus = "layout:" + value;
+      b.setAttribute("aria-pressed", String(current === value));
+      b.title = `Show as ${label2.toLowerCase()}`;
+      add(b, icon(ico), el("span", "", label2));
+      b.addEventListener("click", () => {
+        if (current !== value) onPick(value);
+      });
+      group.appendChild(b);
+    }
+    return group;
+  }
+  async function savedLayout(view, fallback) {
+    const saved = await store.get(`layout:${view}`);
+    return saved === "cards" || saved === "table" ? saved : fallback;
+  }
+  function saveLayout(view, layout) {
+    void store.set(`layout:${view}`, layout);
+  }
+
   // src/ui/upgrade-ui.ts
   async function askTarget(cluster, kind, version, ctx) {
     try {
@@ -2837,9 +3042,15 @@
       ns: hash.ns ?? "",
       env: hash.env ?? "",
       health: hash.health ?? "all",
-      sel: hash.sel ?? ""
+      sel: hash.sel ?? "",
+      layout: "cards",
+      table: readTable(hash, "health", true)
     };
     let model = null;
+    void savedLayout("clusters", "cards").then((layout) => {
+      state.layout = layout;
+      redraw();
+    });
     let events = null;
     const drawer = makeDrawer(document.body, () => {
       state.sel = "";
@@ -2868,7 +3079,7 @@
       redrawDrawer();
     });
     function save() {
-      writeHash({ q: state.q, ns: state.ns, env: state.env, health: state.health === "all" ? "" : state.health, sel: state.sel });
+      writeHash({ q: state.q, ns: state.ns, env: state.env, health: state.health === "all" ? "" : state.health, sel: state.sel, ...tableHash(state.table, "health", true) });
     }
     function matches(c) {
       if (state.ns && c.namespace !== state.ns) return false;
@@ -2919,27 +3130,140 @@
           "Health"
         )
       );
-      const shown = m.clusters.filter(matches).sort((a, b) => toneRank(b.health) - toneRank(a.health) || a.namespace.localeCompare(b.namespace) || a.name.localeCompare(b.name));
-      const grid = el("div", "cgrid");
-      for (const c of shown) grid.appendChild(clusterCard(c));
+      add(
+        toolbar,
+        el("span", "push"),
+        state.layout === "table" ? clearFilters(state.table, () => {
+          save();
+          redraw();
+        }) : null,
+        layoutSwitch(state.layout, (layout) => {
+          state.layout = layout;
+          saveLayout("clusters", layout);
+          redraw();
+        })
+      );
+      const byHealth = (a, b) => toneRank(b.health) - toneRank(a.health) || a.namespace.localeCompare(b.namespace) || a.name.localeCompare(b.name);
+      const matching = m.clusters.filter(matches);
+      let body;
+      if (!m.clusters.length) body = empty("No KubernetesClusters in this supervisor yet.", "", "cluster");
+      else if (state.layout === "table") {
+        const rows = sortRows(filterRows(matching, COLUMNS, state.table), COLUMNS, state.table, byHealth);
+        body = dataTable({
+          columns: COLUMNS,
+          all: m.clusters,
+          rows,
+          key: (c) => c.id,
+          state: state.table,
+          onChange: () => {
+            save();
+            redraw();
+          },
+          onOpen: (c) => open(c.id),
+          selected: state.sel,
+          rowClass: (c) => c.health,
+          className: "ctable",
+          empty: "No cluster matches. Try clearing the filters."
+        });
+      } else if (!matching.length) body = empty("No cluster matches.", "Try clearing the filters.", "cluster");
+      else {
+        body = el("div", "cgrid");
+        for (const c of matching.sort(byHealth)) body.appendChild(clusterCard(c));
+      }
       root.replaceChildren(
         navBar("clusters", badgesFor(m)),
         pageHead("Kubernetes clusters", `${plural(m.clusters.length, "cluster")} · ${plural(m.machines.filter((x) => x.cluster).length, "machine")}`, "cluster"),
         toolbar,
-        shown.length ? grid : empty(m.clusters.length ? "No cluster matches." : "No KubernetesClusters in this supervisor yet.", m.clusters.length ? "Try clearing the filters." : "", "cluster")
+        body
       );
+    }
+    function open(id) {
+      state.sel = id;
+      save();
+      redraw();
+      redrawDrawer();
+    }
+    const COLUMNS = [
+      { id: "health", label: "", className: "col-dot", sort: (c) => -toneRank(c.health), filter: (c) => HEALTH_WORD[c.health] ?? c.health, pick: true, cell: (c) => dot(c.health) },
+      {
+        id: "name",
+        label: "Cluster",
+        sort: (c) => c.name,
+        filter: (c) => `${c.name} ${c.clusterId}`,
+        cell: (c) => add(el("div", "mname"), el("div", "", c.name), c.issues.length ? el("div", "mname-issue " + c.issues[0].tone, c.issues[0].title) : el("div", "faint small", c.clusterId || c.namespace))
+      },
+      { id: "namespace", label: "Namespace", sort: (c) => c.namespace, filter: (c) => c.namespace, pick: true, cell: (c) => el("span", "small", c.namespace) },
+      { id: "env", label: "Environment", sort: (c) => c.environment, filter: (c) => c.environment, pick: true, cell: (c) => c.environment ? chip(c.environment, "info") : el("span", "faint", "—") },
+      { id: "where", label: "Region · zone", sort: (c) => `${c.region} ${c.zone}`, filter: (c) => [c.region, c.zone, c.datacenter].join(" "), cell: (c) => el("span", "small", [c.region, c.zone].filter(Boolean).join(" · ") || "—") },
+      { id: "phase", label: "Phase", sort: (c) => c.phase, filter: (c) => c.phase || "no status", pick: true, cell: (c) => phaseChip(c.phase, c.tone) },
+      {
+        id: "kubernetes",
+        label: "Kubernetes",
+        className: "nowrap",
+        sort: (c) => versionKey(c.versions.kubernetes),
+        filter: (c) => c.versions.kubernetes ? kubeText(c.versions.kubernetes) : "",
+        pick: true,
+        cell: (c) => {
+          const support = c.plan?.support?.state;
+          return versionPill("kubernetes", c.versions.kubernetes, { tone: support === "end-of-life" ? "error" : support === "ending" ? "warn" : void 0 });
+        }
+      },
+      {
+        id: "talos",
+        label: "Talos",
+        className: "nowrap",
+        sort: (c) => versionKey(c.versions.talos),
+        filter: (c) => c.versions.talos ? talosText(c.versions.talos) : "",
+        pick: true,
+        cell: (c) => c.versions.talos || c.providerType === "talos" ? versionPill("talos", c.versions.talos) : el("span", "faint", "—")
+      },
+      {
+        id: "cp",
+        label: "Control planes",
+        className: "nowrap",
+        title: "Machines in the control plane, of how many the topology asks for",
+        sort: (c) => c.controlPlanes.length,
+        cell: (c) => countCell(c.controlPlanes.length, c.desiredControlPlanes, c.controlPlanes.filter((x) => x.health === "ok").length)
+      },
+      {
+        id: "workers",
+        label: "Workers",
+        className: "nowrap",
+        sort: (c) => c.workers.length,
+        cell: (c) => countCell(c.workers.length, c.desiredWorkers, c.workers.filter((x) => x.health === "ok").length)
+      },
+      {
+        id: "network",
+        label: "Network",
+        sort: (c) => c.network?.name ?? c.networkName,
+        filter: (c) => `${c.network?.name ?? c.networkName} ${c.network?.vlan ?? ""}`,
+        cell: (c) => add(el("span", "small" + (c.network ? "" : " faint")), c.network ? c.network.name : c.networkName ? `${c.networkName} (missing)` : "—", c.network?.vlan != null ? el("span", "faint", ` · VLAN ${c.network.vlan}`) : null)
+      },
+      { id: "provider", label: "Providers", sort: (c) => c.providers.map((p) => p.type).join(","), filter: (c) => c.providers.map((p) => p.type).join(", ") || c.providerType, pick: true, cell: (c) => el("span", "small", c.providers.map((p) => p.type).join(", ") || c.providerType || "—") },
+      {
+        id: "upgrade",
+        label: "Upgrade",
+        sort: (c) => VERDICT_ORDER[c.plan?.verdict ?? "unknown"],
+        filter: (c) => VERDICT_WORD[c.plan?.verdict ?? "unknown"] ?? "",
+        pick: true,
+        cell: (c) => upgradeChip(c)
+      },
+      { id: "issues", label: "Issues", className: "nowrap", sort: (c) => -c.issues.length, cell: (c) => c.issues.length ? add(el("span", "small"), dot(worst(c.issues.map((i) => i.tone))), ` ${c.issues.length}`) : el("span", "faint small", "0") },
+      { id: "age", label: "Age", className: "nowrap", sort: (c) => -c.created, cell: (c) => el("span", "small faint", c.created && model ? ago(c.created, model.now).replace(" ago", "") : "") }
+    ];
+    function upgradeChip(c) {
+      const plan = c.plan;
+      if (!plan || plan.verdict === "unknown") return el("span", "faint small", "—");
+      if (plan.verdict === "current") return chip("up to date", "ok", "check", plan.headline);
+      const label2 = plan.verdict === "available" ? plan.path[0] ? plan.path[0].kind === "talos" ? talosText(plan.path[0].to) : kubeText(plan.path[0].to) : "available" : plan.verdict.replace("-", " ");
+      return chip(label2, plan.tone, "upgrade", plan.headline);
     }
     function clusterCard(c) {
       const card2 = el("button", `ccard ${c.health}${state.sel === c.id ? " sel" : ""}`);
       card2.type = "button";
       card2.dataset.focus = "cc:" + c.id;
       card2.setAttribute("aria-label", `${c.name}, ${c.phase || "no status yet"}`);
-      card2.addEventListener("click", () => {
-        state.sel = c.id;
-        save();
-        redraw();
-        redrawDrawer();
-      });
+      card2.addEventListener("click", () => open(c.id));
       const top = el("div", "ccard-top");
       const words = el("div", "ccard-words");
       add(words, el("div", "ccard-name", c.name), el("div", "faint small", [c.namespace, c.region, c.zone].filter(Boolean).join(" · ")));
@@ -2995,4 +3319,17 @@
       drawer.show();
     }
   });
+  var HEALTH_WORD = { error: "failing", warn: "needs a look", info: "working", ok: "healthy", muted: "unknown" };
+  var VERDICT_ORDER = { failed: 0, blocked: 1, "in-progress": 2, available: 3, unknown: 4, current: 5 };
+  var VERDICT_WORD = { failed: "failed", blocked: "blocked", "in-progress": "in progress", available: "available", unknown: "unknown", current: "up to date" };
+  function versionKey(v) {
+    return v ? v.major * 1e6 + v.minor * 1e3 + (v.hasPatch ? v.patch : 0) : null;
+  }
+  function countCell(have, want, healthy) {
+    const node = el("span", "small");
+    add(node, el("strong", "", String(have)), want ? el("span", "faint", `/${want}`) : null);
+    if (have) node.title = `${healthy} of ${have} healthy` + (want ? `, ${want} asked for` : "");
+    if (want && have !== want) node.classList.add("mixed");
+    return node;
+  }
 })();

@@ -1507,6 +1507,8 @@
     edit: ["M4 20h4L19 9l-4-4L4 16z", "M14 6l4 4"],
     chevron: ["M9.5 6l6 6-6 6"],
     "chevron-down": ["M6 9.5l6 6 6-6"],
+    "chevron-up": ["M6 14.5l6-6 6 6"],
+    sort: ["M8 4v16", "M4.5 7.5 8 4l3.5 3.5", "M16 20V4", "M12.5 16.5 16 20l3.5-3.5"],
     "arrow-right": ["M5 12h14", "M13 6l6 6-6 6"],
     upgrade: ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z", "M12 16.5V8", "M8.5 11.5 12 8l3.5 3.5"],
     refresh: ["M20.5 12a8.5 8.5 0 1 1-2.6-6.1", "M20.5 4v5h-5"],
@@ -2105,19 +2107,6 @@
     wrap.appendChild(input);
     return wrap;
   }
-  function select(options, value, onChange, label2) {
-    const node = el("select", "select");
-    node.setAttribute("aria-label", label2);
-    node.dataset.focus = "select:" + label2;
-    for (const o of options) {
-      const opt = el("option", "", o.label);
-      opt.value = o.value;
-      opt.selected = o.value === value;
-      node.appendChild(opt);
-    }
-    node.addEventListener("change", () => onChange(node.value));
-    return node;
-  }
 
   // src/ui/chrome.ts
   var VIEWS = [
@@ -2188,6 +2177,181 @@
       await restoreView(view);
       run(ctx, root);
     }).catch((err) => banner.show(err));
+  }
+
+  // src/ui/datatable.ts
+  function readTable(hash, sort, desc) {
+    const filters = {};
+    for (const [k, v] of Object.entries(hash)) if (k.startsWith("f.") && v) filters[k.slice(2)] = v;
+    return { sort: hash.sort || sort, desc: hash.desc ? hash.desc === "1" : desc, filters };
+  }
+  function tableHash(state, sort, desc) {
+    const out = { sort: state.sort === sort ? "" : state.sort, desc: state.desc === desc ? "" : state.desc ? "1" : "0" };
+    for (const [k, v] of Object.entries(state.filters)) if (v) out["f." + k] = v;
+    return out;
+  }
+  function filtering(state) {
+    return Object.values(state.filters).some(Boolean);
+  }
+  function filterRows(rows, columns, state) {
+    const active = columns.filter((c) => c.filter && state.filters[c.id]);
+    if (!active.length) return [...rows];
+    return rows.filter(
+      (row) => active.every((c) => {
+        const want = state.filters[c.id];
+        const have = c.filter(row);
+        if (c.pick) return have === want;
+        const text = have.toLowerCase();
+        return want.toLowerCase().split(/\s+/).filter(Boolean).every((w) => text.includes(w));
+      })
+    );
+  }
+  function sortRows(rows, columns, state, tie = () => 0) {
+    const col = columns.find((c) => c.id === state.sort && c.sort);
+    if (!col) return rows.sort(tie);
+    const key = col.sort;
+    return rows.sort((a, b) => {
+      const r = compareKeys(key(a), key(b));
+      return (state.desc ? -r : r) || tie(a, b);
+    });
+  }
+  function compareKeys(a, b) {
+    const blankA = a === null || a === void 0 || a === "";
+    const blankB = b === null || b === void 0 || b === "";
+    if (blankA || blankB) return blankA === blankB ? 0 : blankA ? 1 : -1;
+    if (typeof a === "number" && typeof b === "number") return a - b;
+    return String(a).localeCompare(String(b), void 0, { numeric: true, sensitivity: "base" });
+  }
+  function dataTable(opts) {
+    const { columns, state } = opts;
+    const table = el("table", "tbl dtable" + (opts.className ? " " + opts.className : ""));
+    const head2 = el("tr");
+    for (const col of columns) {
+      const th = el("th", col.className ?? "");
+      if (col.title) th.title = col.title;
+      if (col.sort) {
+        const on = state.sort === col.id;
+        const b = el("button", "th-sort" + (on ? " on" : ""));
+        b.type = "button";
+        b.dataset.focus = "sort:" + col.id;
+        add(b, el("span", "", col.label || "Health"), icon(on ? state.desc ? "chevron-down" : "chevron-up" : "sort", "th-dir"));
+        if (!col.label) b.classList.add("sr-label");
+        b.setAttribute("aria-label", `Sort by ${col.label || "health"}`);
+        th.setAttribute("aria-sort", on ? state.desc ? "descending" : "ascending" : "none");
+        b.addEventListener("click", () => {
+          if (state.sort === col.id) state.desc = !state.desc;
+          else {
+            state.sort = col.id;
+            state.desc = false;
+          }
+          opts.onChange();
+        });
+        th.appendChild(b);
+      } else th.textContent = col.label;
+      head2.appendChild(th);
+    }
+    const filters = el("tr", "tbl-filters");
+    for (const col of columns) {
+      const td = el("th", col.className ?? "");
+      if (col.filter) td.appendChild(filterControl(col, opts));
+      filters.appendChild(td);
+    }
+    const thead = el("thead");
+    add(thead, head2, filters);
+    const tbody = el("tbody");
+    for (const row of opts.rows) {
+      const id = opts.key(row);
+      const open = opts.opened?.has(id) ?? false;
+      const tr = el("tr", [opts.rowClass?.(row) ?? "", opts.onOpen ? "clickable" : "", opts.selected === id ? "sel" : "", open ? "open" : ""].filter(Boolean).join(" "));
+      if (opts.onOpen) {
+        tr.tabIndex = 0;
+        tr.dataset.focus = "row:" + id;
+        const go = () => opts.onOpen(row);
+        tr.addEventListener("click", (e) => {
+          if (e.target.closest("button, a, input, select")) return;
+          go();
+        });
+        tr.addEventListener("keydown", (e) => {
+          if (e.target !== tr) return;
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            go();
+          }
+        });
+        if (opts.opened) tr.setAttribute("aria-expanded", String(open));
+      }
+      for (const col of columns) {
+        const content = col.cell(row);
+        tr.appendChild(add(el("td", col.className ?? ""), ...Array.isArray(content) ? content : [content]));
+      }
+      tbody.appendChild(tr);
+      if (open && opts.detail) {
+        const dr = el("tr", "tbl-detail");
+        const td = el("td");
+        td.colSpan = columns.length;
+        add(td, opts.detail(row));
+        dr.appendChild(td);
+        tbody.appendChild(dr);
+      }
+    }
+    if (!opts.rows.length) {
+      const tr = el("tr", "tbl-none");
+      const td = el("td", "faint", opts.empty ?? "Nothing matches these filters.");
+      td.colSpan = columns.length;
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+    }
+    add(table, thead, tbody);
+    const wrap = el("div", "tbl-wrap");
+    wrap.dataset.scroll = "table";
+    wrap.appendChild(table);
+    return wrap;
+  }
+  function filterControl(col, opts) {
+    const value = opts.state.filters[col.id] ?? "";
+    const set = (v) => {
+      if (v) opts.state.filters[col.id] = v;
+      else delete opts.state.filters[col.id];
+      opts.onChange();
+    };
+    if (col.pick) {
+      const values = [...new Set(opts.all.map((r) => col.filter(r)))].filter(Boolean).sort((a, b) => compareKeys(a, b));
+      if (value && !values.includes(value)) values.unshift(value);
+      const s = el("select", "tf-select" + (value ? " on" : ""));
+      s.dataset.focus = "tf:" + col.id;
+      s.setAttribute("aria-label", `Filter ${col.label || "health"}`);
+      const any = el("option", "", "any");
+      any.value = "";
+      s.appendChild(any);
+      for (const v of values) {
+        const o = el("option", "", v);
+        o.value = v;
+        o.selected = v === value;
+        s.appendChild(o);
+      }
+      s.addEventListener("change", () => set(s.value));
+      return s;
+    }
+    const input = el("input", "tf-input" + (value ? " on" : ""));
+    input.type = "search";
+    input.value = value;
+    input.placeholder = "filter";
+    input.dataset.focus = "tf:" + col.id;
+    input.setAttribute("aria-label", `Filter ${col.label}`);
+    input.addEventListener("input", () => set(input.value));
+    return input;
+  }
+  function clearFilters(state, onChange) {
+    if (!filtering(state)) return null;
+    const b = el("button", "ghost small");
+    b.type = "button";
+    b.dataset.focus = "tf-clear";
+    add(b, icon("close"), el("span", "", "Clear column filters"));
+    b.addEventListener("click", () => {
+      state.filters = {};
+      onChange();
+    });
+    return b;
   }
 
   // src/ui/detail.ts
@@ -2438,32 +2602,16 @@
   }
 
   // src/pages/machines.ts
-  var COLUMNS = [
-    { key: "health", label: "", className: "col-dot" },
-    { key: "name", label: "Machine" },
-    { key: "cluster", label: "Cluster" },
-    { key: null, label: "Role" },
-    { key: null, label: "Provider" },
-    { key: "phase", label: "Phase" },
-    { key: "vm", label: "VM" },
-    { key: "node", label: "Node" },
-    { key: "ip", label: "Address" },
-    { key: null, label: "Size" },
-    { key: "talos", label: "Talos" },
-    { key: "age", label: "Age" }
-  ];
   start("machines", (ctx, root) => {
     const hash = readHash();
     const state = {
       q: hash.q ?? "",
-      cluster: hash.cluster ?? "",
-      provider: hash.provider ?? "",
       role: hash.role ?? "all",
       health: hash.health ?? "all",
-      sort: hash.sort ?? "health",
-      desc: hash.desc !== "0",
+      table: readTable(hash, "health", false),
       sel: hash.sel ?? ""
     };
+    if (hash.cluster && !state.table.filters.cluster) state.table.filters.cluster = hash.cluster;
     let model = null;
     let events = null;
     const drawer = makeDrawer(document.body, () => {
@@ -2488,7 +2636,9 @@
     void takeFocus("machines").then((id) => {
       if (!id) return;
       if (id.startsWith("cluster=")) {
-        state.cluster = id.slice("cluster=".length);
+        const clusterId = id.slice("cluster=".length);
+        const cluster = model?.clusters.find((c) => c.id === clusterId);
+        state.table.filters.cluster = cluster?.name ?? clusterId;
         state.sel = "";
       } else state.sel = id;
       save();
@@ -2498,54 +2648,27 @@
     function save() {
       writeHash({
         q: state.q,
-        cluster: state.cluster,
-        provider: state.provider,
         role: state.role === "all" ? "" : state.role,
         health: state.health === "all" ? "" : state.health,
-        sort: state.sort === "health" ? "" : state.sort,
-        desc: state.desc ? "" : "0",
-        sel: state.sel
+        sel: state.sel,
+        ...tableHash(state.table, "health", false)
       });
     }
     function matches(x) {
-      if (state.cluster && (x.cluster?.id ?? "") !== state.cluster) return false;
-      if (state.provider && (x.provider?.id ?? x.providerType) !== state.provider) return false;
       if (state.role !== "all" && x.role !== state.role) return false;
       if (state.health !== "all" && x.health !== state.health) return false;
       const q = state.q.trim().toLowerCase();
       if (!q) return true;
       return [x.label, x.name, x.namespace, x.cluster?.name ?? "", x.phase, x.vmStatus, x.node, x.className, x.poolName, ...x.ips].join(" ").toLowerCase().includes(q);
     }
-    function compare(a, b) {
-      const by = () => {
-        switch (state.sort) {
-          case "health":
-            return toneRank(a.health) - toneRank(b.health);
-          case "name":
-            return b.label.localeCompare(a.label);
-          case "cluster":
-            return (b.cluster?.name ?? "").localeCompare(a.cluster?.name ?? "");
-          case "phase":
-            return b.phase.localeCompare(a.phase);
-          case "vm":
-            return b.vmStatus.localeCompare(a.vmStatus);
-          case "node":
-            return b.node.localeCompare(a.node);
-          case "ip":
-            return ipKey(b.ips[0]).localeCompare(ipKey(a.ips[0]));
-          case "talos":
-            return a.talos && b.talos ? compareVersions(a.talos, b.talos) : a.talos ? 1 : b.talos ? -1 : 0;
-          case "age":
-            return b.created - a.created;
-        }
-      };
-      const r = by();
-      return (state.desc ? r : -r) || a.label.localeCompare(b.label);
+    function changed() {
+      save();
+      redraw();
     }
     function draw() {
       if (!model) return;
       const m = model;
-      const shown = m.machines.filter(matches).sort((a, b) => compare(b, a));
+      const shown = sortRows(filterRows(m.machines.filter(matches), COLUMNS, state.table), COLUMNS, state.table, (a, b) => a.label.localeCompare(b.label));
       const by = (t) => m.machines.filter((x) => x.health === t).length;
       const running = m.machines.filter((x) => /^running$/i.test(x.phase)).length;
       const vms = m.machines.filter((x) => x.vm);
@@ -2562,26 +2685,13 @@
         }),
         tile({ label: "Failing", value: by("error"), sub: `${by("warn")} need a look`, icon: "alert", tone: by("error") ? "error" : by("warn") ? "warn" : "ok" })
       );
-      const clusters = [...m.clusters].sort((a, b) => a.name.localeCompare(b.name));
-      const providerOptions = [...new Map(m.machines.map((x) => [x.provider?.id ?? x.providerType, x.provider ? `${x.provider.label} (${x.provider.type})` : x.providerType || "no provider"])).entries()];
       const toolbar = el("div", "toolbar");
       add(
         toolbar,
         searchBox(state.q, "Find a machine, IP, node…", (v) => {
           state.q = v;
-          save();
-          redraw();
+          changed();
         }),
-        select([{ value: "", label: "All clusters" }, ...clusters.map((c) => ({ value: c.id, label: c.name }))], state.cluster, (v) => {
-          state.cluster = v;
-          save();
-          redraw();
-        }, "Cluster"),
-        providerOptions.length > 1 ? select([{ value: "", label: "All providers" }, ...providerOptions.map(([value, label2]) => ({ value, label: label2 }))], state.provider, (v) => {
-          state.provider = v;
-          save();
-          redraw();
-        }, "Provider") : null,
         segmented(
           [
             { value: "all", label: "All" },
@@ -2613,83 +2723,98 @@
           "Health"
         )
       );
-      const table = el("table", "tbl mtable");
-      const head2 = el("tr");
-      for (const col of COLUMNS) {
-        const th = el("th", col.className ?? "");
-        if (col.key) {
-          const b = el("button", "th-sort" + (state.sort === col.key ? " on" : ""));
-          b.type = "button";
-          b.dataset.focus = "sort:" + col.key;
-          add(b, el("span", "", col.label || "Health"), state.sort === col.key ? icon(state.desc ? "chevron-down" : "chevron", "th-dir") : null);
-          if (!col.label) b.classList.add("sr-label");
-          b.addEventListener("click", () => {
-            if (state.sort === col.key) state.desc = !state.desc;
-            else {
-              state.sort = col.key;
-              state.desc = col.key === "health" || col.key === "age";
-            }
-            save();
-            redraw();
-          });
-          th.appendChild(b);
-        } else th.textContent = col.label;
-        head2.appendChild(th);
-      }
-      const thead = el("thead");
-      thead.appendChild(head2);
-      const tbody = el("tbody");
-      for (const x of shown) tbody.appendChild(row(x, m));
-      add(table, thead, tbody);
+      add(toolbar, el("span", "push"), clearFilters(state.table, changed));
+      const table = dataTable({
+        columns: COLUMNS,
+        all: m.machines,
+        rows: shown,
+        key: (x) => x.id,
+        state: state.table,
+        onChange: changed,
+        onOpen: (x) => {
+          state.sel = x.id;
+          save();
+          redraw();
+          redrawDrawer();
+        },
+        selected: state.sel,
+        rowClass: (x) => x.health,
+        className: "mtable",
+        empty: "No machine matches. Try clearing the filters."
+      });
       const orphans = m.orphanVMs.length ? orphanCard(m) : null;
       root.replaceChildren(
         navBar("machines", badgesFor(m)),
-        pageHead("Machines & VMs", `${plural(m.machines.length, "machine")}${state.cluster || state.q || state.health !== "all" || state.role !== "all" ? ` · ${shown.length} shown` : ""}`, "vm"),
+        pageHead("Machines & VMs", `${plural(m.machines.length, "machine")}${shown.length !== m.machines.length ? ` · ${shown.length} shown` : ""}`, "vm"),
         tiles,
         toolbar,
-        shown.length ? add(el("div", "tbl-wrap"), table) : empty(m.machines.length ? "No machine matches." : "No Machines in this supervisor yet.", m.machines.length ? "Try clearing the filters." : "", "machine"),
+        m.machines.length ? table : empty("No Machines in this supervisor yet.", "", "machine"),
         ...orphans ? [orphans] : []
       );
     }
-    function row(x, m) {
-      const tr = el("tr", "clickable" + (state.sel === x.id ? " sel" : "") + " " + x.health);
-      tr.tabIndex = 0;
-      tr.dataset.focus = "m:" + x.id;
-      const open = () => {
-        state.sel = x.id;
-        save();
-        redraw();
-        redrawDrawer();
-      };
-      tr.addEventListener("click", open);
-      tr.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          open();
-        }
-      });
-      const vmCell = el("td");
-      if (x.vm) vmCell.appendChild(phaseChip(x.vmStatus, x.vmTone));
-      else vmCell.appendChild(el("span", "faint small", x.backend ? `in ${x.backend.label}` : m.served("vm") ? "—" : "remote"));
-      const ipCell = el("td", "mono");
-      add(ipCell, x.ips[0] ?? el("span", "faint", "—"), x.ips.length > 1 ? el("span", "faint small", ` +${x.ips.length - 1}`) : null);
-      add(
-        tr,
-        add(el("td", "col-dot"), dot(x.health)),
-        add(el("td", "mname"), el("div", "", x.label), x.issues.length ? el("div", "mname-issue " + x.issues[0].tone, x.issues[0].title) : el("div", "faint small", x.namespace)),
-        add(el("td"), x.cluster ? linkButton(x.cluster.name, () => void goTo("clusters", x.cluster.id), "Open on the Clusters page") : el("span", "faint", x.clusterId || "—")),
-        add(el("td"), x.role === "control-plane" ? chip("control plane", "info") : el("span", "", x.poolName || x.role || "—")),
-        add(el("td", "small"), el("div", "", x.provider?.label ?? x.providerType ?? "—"), x.backend ? el("div", "faint", `→ ${x.backend.label}`) : null),
-        add(el("td"), phaseChip(x.phase, x.tone)),
-        vmCell,
-        el("td", "small", x.node || ""),
-        ipCell,
-        el("td", "small", [x.cpus ? `${x.cpus} vCPU` : "", x.memory ? bytes(x.memory) : ""].filter(Boolean).join(" · ") || x.className),
-        el("td", "small mono", x.talos ? talosText(x.talos) : ""),
-        el("td", "small faint", x.created ? ago(x.created, m.now).replace(" ago", "") : "")
-      );
-      return tr;
-    }
+    const COLUMNS = [
+      { id: "health", label: "", className: "col-dot", sort: (x) => -toneRank(x.health), filter: (x) => HEALTH_WORD[x.health] ?? x.health, pick: true, cell: (x) => dot(x.health) },
+      {
+        id: "name",
+        label: "Machine",
+        className: "mname",
+        sort: (x) => x.label,
+        filter: (x) => `${x.label} ${x.name} ${x.namespace}`,
+        cell: (x) => [el("div", "", x.label), x.issues.length ? el("div", "mname-issue " + x.issues[0].tone, x.issues[0].title) : el("div", "faint small", x.namespace)]
+      },
+      {
+        id: "cluster",
+        label: "Cluster",
+        sort: (x) => x.cluster?.name ?? x.clusterId,
+        filter: (x) => x.cluster?.name ?? x.clusterId,
+        pick: true,
+        cell: (x) => x.cluster ? linkButton(x.cluster.name, () => void goTo("clusters", x.cluster.id), "Open on the Clusters page") : el("span", "faint", x.clusterId || "—")
+      },
+      {
+        id: "role",
+        label: "Role",
+        sort: (x) => `${x.role} ${x.poolName}`,
+        filter: (x) => x.role === "control-plane" ? "control plane" : x.poolName || x.role || "",
+        pick: true,
+        cell: (x) => x.role === "control-plane" ? chip("control plane", "info") : el("span", "", x.poolName || x.role || "—")
+      },
+      {
+        id: "provider",
+        label: "Provider",
+        sort: (x) => x.provider?.label ?? x.providerType,
+        filter: (x) => x.provider?.label ?? x.providerType ?? "",
+        pick: true,
+        cell: (x) => [el("div", "small", x.provider?.label ?? x.providerType ?? "—"), x.backend ? el("div", "faint small", `→ ${x.backend.label}`) : null]
+      },
+      { id: "phase", label: "Phase", sort: (x) => x.phase, filter: (x) => x.phase || "no status", pick: true, cell: (x) => phaseChip(x.phase, x.tone) },
+      {
+        id: "vm",
+        label: "VM",
+        sort: (x) => x.vmStatus,
+        filter: (x) => x.vmStatus || (x.backend ? `in ${x.backend.label}` : "remote"),
+        pick: true,
+        cell: (x) => x.vm ? phaseChip(x.vmStatus, x.vmTone) : el("span", "faint small", x.backend ? `in ${x.backend.label}` : model?.served("vm") ? "—" : "remote")
+      },
+      { id: "node", label: "Node", sort: (x) => x.node, filter: (x) => x.node, cell: (x) => el("span", "small", x.node || "") },
+      {
+        id: "ip",
+        label: "Address",
+        className: "mono",
+        sort: (x) => ipKey(x.ips[0]),
+        filter: (x) => x.ips.join(" "),
+        cell: (x) => [x.ips[0] ?? el("span", "faint", "—"), x.ips.length > 1 ? el("span", "faint small", ` +${x.ips.length - 1}`) : null]
+      },
+      {
+        id: "size",
+        label: "Size",
+        title: "vCPUs, then memory",
+        sort: (x) => x.cpus * 1e13 + x.memory,
+        filter: (x) => sizeText(x),
+        cell: (x) => el("span", "small", sizeText(x))
+      },
+      { id: "talos", label: "Talos", className: "nowrap", sort: (x) => x.talos ? x.talos.major * 1e6 + x.talos.minor * 1e3 + x.talos.patch : null, filter: (x) => x.talos ? talosText(x.talos) : "", pick: true, cell: (x) => el("span", "small mono", x.talos ? talosText(x.talos) : "") },
+      { id: "age", label: "Age", className: "nowrap", sort: (x) => -x.created, cell: (x) => el("span", "small faint", x.created && model ? ago(x.created, model.now).replace(" ago", "") : "") }
+    ];
     function orphanCard(m) {
       const c = card("VMs whose machine is gone", { icon: "alert", className: "warn-card" });
       c.body.appendChild(el("p", "faint small", "These VirtualMachines carry vitistack.io/source-machine, and no Machine of that name exists. They were probably left behind when the machine was deleted."));
@@ -2712,6 +2837,10 @@
       drawer.show();
     }
   });
+  var HEALTH_WORD = { error: "failing", warn: "needs a look", info: "working", ok: "healthy", muted: "unknown" };
+  function sizeText(x) {
+    return [x.cpus ? `${x.cpus} vCPU` : "", x.memory ? bytes(x.memory) : ""].filter(Boolean).join(" · ") || x.className;
+  }
   function ipKey(ip) {
     if (!ip) return "";
     const parts = ip.split(".");
