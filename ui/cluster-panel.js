@@ -1486,6 +1486,16 @@
     add(root, head2, body);
     return { root, body };
   }
+  function section(title, opts) {
+    const ui = sdk.ui;
+    if (!ui) {
+      const extra = [opts.count === void 0 ? null : el("span", "faint small", String(opts.count)), ...opts.actions ?? []];
+      return card(title, { icon: opts.icon, extra });
+    }
+    const sec = ui.section({ id: opts.id, title, count: opts.count, what: opts.what });
+    add(sec.actions, ...opts.actions ?? []);
+    return { root: sec.root, body: sec.body };
+  }
   function empty(text, sub, iconName = "info") {
     const node = el("div", "empty");
     add(node, icon(iconName), el("div", "empty-text", text), sub ? el("div", "empty-sub", sub) : null);
@@ -1837,15 +1847,15 @@
     );
     root.appendChild(glance);
     if (c.plan) {
-      const up = card("Upgrades", { icon: "upgrade", extra: ctx.compact ? null : linkButton("All clusters", () => void goTo("upgrades", c.id)) });
+      const up = section("Upgrades", { id: "upgrades", what: "the upgrades", icon: "upgrade", actions: ctx.compact ? [] : [linkButton("All clusters", () => void goTo("upgrades", c.id))] });
       up.body.appendChild(upgradeCard(c.plan, { write: ctx.write, compact: ctx.compact, onChanged: ctx.onChanged }));
       root.appendChild(up.root);
     }
-    const pools = card("Machines", { icon: "machine", extra: el("span", "faint small", plural(c.machines.length, "machine")) });
+    const pools = section("Machines", { id: "machines", what: "the machines", count: c.machines.length, icon: "machine" });
     if (!c.pools.length) pools.body.appendChild(el("div", "faint small", "The topology names no pools, and no machine carries this cluster’s id."));
     for (const p of c.pools) pools.body.appendChild(poolRow(p, onMachine));
     root.appendChild(pools.root);
-    const place = card("Network and placement", { icon: "network" });
+    const place = section("Network and placement", { id: "network", what: "the network and placement", icon: "network" });
     place.body.appendChild(networkBox(c.network, c.networkName, c.networkGuessed));
     const where = el("div", "placement");
     for (const p of c.providers) where.appendChild(button(`${p.label} · ${p.type}`, "chipbtn", "provider", () => openInApp(p.ref)));
@@ -1864,24 +1874,24 @@
     );
     root.appendChild(place.root);
     if (ctx.compact) return root;
-    const conds = card("Conditions", { icon: "pulse" });
+    const conds = section("Conditions", { id: "conditions", what: "the conditions", count: c.conditions.length || void 0, icon: "pulse" });
     conds.body.appendChild(conditionList(c.conditions, now));
     root.appendChild(conds.root);
     if (c.endpoints.length) {
-      const ep = card("Endpoints", { icon: "link" });
+      const ep = section("Endpoints", { id: "endpoints", what: "the endpoints", count: c.endpoints.length, icon: "link" });
       ep.body.appendChild(kv(c.endpoints.map((e) => [e.name || "endpoint", /^https?:\/\//i.test(e.address) ? linkButton(e.address, () => openUrl(e.address)) : el("code", "", e.address)])));
       root.appendChild(ep.root);
     }
     const reported = c.obj.status?.state?.versions ?? [];
     const res = resourceMeters(c);
     if (reported.length || res) {
-      const info = card("Reported by the cluster", { icon: "info" });
+      const info = section("Reported by the cluster", { id: "reported", what: "what the cluster reports", icon: "info" });
       if (res) info.body.appendChild(res);
       if (reported.length) info.body.appendChild(kv(reported.map((v) => [v.name ?? "", `${v.version ?? ""}${v.branch ? " (" + v.branch + ")" : ""}`])));
       root.appendChild(info.root);
     }
     if (c.etcdBackups.length || c.vips.length || c.storages.length) {
-      const around = card("Around it", { icon: "shield" });
+      const around = section("Around it", { id: "around", what: "the backups, VIPs and storage", count: c.etcdBackups.length + c.vips.length + c.storages.length, icon: "shield" });
       for (const b of c.etcdBackups) {
         const st = b.status ?? {};
         around.body.appendChild(
@@ -1920,8 +1930,9 @@
       }
       root.appendChild(around.root);
     }
-    const ev = card("Events", { icon: "clock" });
-    ev.body.appendChild(eventList(ctx.events ? eventsFor(ctx.events, "KubernetesCluster", c.namespace, c.name) : null, now));
+    const events = ctx.events ? eventsFor(ctx.events, "KubernetesCluster", c.namespace, c.name) : null;
+    const ev = section("Events", { id: "events", what: "the events", count: events?.length || void 0, icon: "clock" });
+    ev.body.appendChild(eventList(events, now));
     root.appendChild(ev.root);
     return root;
   }

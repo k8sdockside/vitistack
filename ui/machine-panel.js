@@ -1406,6 +1406,16 @@
     add(root, head2, body);
     return { root, body };
   }
+  function section(title, opts) {
+    const ui = sdk.ui;
+    if (!ui) {
+      const extra = [opts.count === void 0 ? null : el("span", "faint small", String(opts.count)), ...opts.actions ?? []];
+      return card(title, { icon: opts.icon, extra });
+    }
+    const sec = ui.section({ id: opts.id, title, count: opts.count, what: opts.what });
+    add(sec.actions, ...opts.actions ?? []);
+    return { root: sec.root, body: sec.body };
+  }
   function empty(text, sub, iconName = "info") {
     const node = el("div", "empty");
     add(node, icon(iconName), el("div", "empty-text", text), sub ? el("div", "empty-sub", sub) : null);
@@ -1463,7 +1473,7 @@
       failure && machineRunning(m) ? quote(`The operator’s last recorded failure -- the machine runs now: ${failure}`, "muted") : quote(failure || m.message, failure ? "error" : m.tone)
     );
     if (m.issues.length) root.appendChild(issueList(m.issues, { showSubject: false, now }));
-    const facts = card("Machine", { icon: "machine" });
+    const facts = section("Machine", { id: "machine", what: "the machine", icon: "machine" });
     const cls = m.machineClass?.spec;
     facts.body.appendChild(
       kv([
@@ -1487,7 +1497,7 @@
       ])
     );
     root.appendChild(facts.root);
-    const vmCard = card("Virtual machine", { icon: "vm" });
+    const vmCard = section("Virtual machine", { id: "vm", what: "the virtual machine", icon: "vm" });
     if (m.vm) {
       const vmi = m.vmi?.status;
       vmCard.body.appendChild(
@@ -1516,7 +1526,7 @@
       );
     }
     root.appendChild(vmCard.root);
-    const net = card("Network", { icon: "ip" });
+    const net = section("Network", { id: "network", what: "the addresses and network", icon: "ip" });
     if (m.ips.length) net.body.appendChild(add(el("div", "ips"), ...m.ips.map((ip) => el("code", "ip", ip))));
     const nc = m.networkConfiguration;
     if (nc) {
@@ -1568,7 +1578,7 @@
     const disks = st.disks ?? [];
     const specDisks = m.obj.spec?.disks ?? [];
     if (disks.length || specDisks.length) {
-      const d = card("Disks", { icon: "disk" });
+      const d = section("Disks", { id: "disks", what: "the disks", count: disks.length || specDisks.length, icon: "disk" });
       const t = el("table", "tbl small");
       add(t, add(el("tr"), el("th", "", "Disk"), el("th", "", "Size"), el("th", "", "Type"), el("th", "", "Volume"), el("th", "", "Used")));
       if (disks.length) {
@@ -1582,15 +1592,15 @@
       d.body.appendChild(add(el("div", "tbl-wrap"), t));
       root.appendChild(d.root);
     }
-    const conds = card("Conditions", { icon: "pulse" });
+    const conds = section("Conditions", { id: "conditions", what: "the conditions", count: st.conditions?.length || void 0, icon: "pulse" });
     conds.body.appendChild(conditionList(st.conditions, now));
     root.appendChild(conds.root);
-    const ev = card("Events", { icon: "clock" });
     const events = ctx.events ? [
       ...eventsFor(ctx.events, "Machine", m.namespace, m.name),
       ...m.vm ? eventsFor(ctx.events, "VirtualMachine", m.vm.metadata.namespace ?? "", m.vm.metadata.name) : [],
       ...m.vmi ? eventsFor(ctx.events, "VirtualMachineInstance", m.vmi.metadata.namespace ?? "", m.vmi.metadata.name) : []
     ] : null;
+    const ev = section("Events", { id: "events", what: "the events", count: events?.length || void 0, icon: "clock" });
     ev.body.appendChild(eventList(events, now));
     root.appendChild(ev.root);
     return root;

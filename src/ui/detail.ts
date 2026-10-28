@@ -13,7 +13,7 @@ import { ago, bytes, percent, plural, quantity, timeOf } from './format';
 import { editInApp, goTo, openInApp, openUrl } from './nav';
 import { banner, declined, sdk } from './page';
 import { upgradeCard } from './upgrade-ui';
-import { card, conditionList, dot, eventList, healthChip, issueList, kv, meter, phaseChip, ring, tile, versionPill } from './widgets';
+import { conditionList, dot, eventList, healthChip, issueList, kv, meter, phaseChip, ring, section, tile, versionPill } from './widgets';
 
 export interface DetailContext {
     model: Model;
@@ -190,18 +190,18 @@ export function clusterDetail(c: ClusterView, ctx: DetailContext): HTMLElement {
     root.appendChild(glance);
 
     if (c.plan) {
-        const up = card('Upgrades', { icon: 'upgrade', extra: ctx.compact ? null : linkButton('All clusters', () => void goTo('upgrades', c.id)) });
+        const up = section('Upgrades', { id: 'upgrades', what: 'the upgrades', icon: 'upgrade', actions: ctx.compact ? [] : [linkButton('All clusters', () => void goTo('upgrades', c.id))] });
         up.body.appendChild(upgradeCard(c.plan, { write: ctx.write, compact: ctx.compact, onChanged: ctx.onChanged }));
         root.appendChild(up.root);
     }
 
     // Machines by pool
-    const pools = card('Machines', { icon: 'machine', extra: el('span', 'faint small', plural(c.machines.length, 'machine')) });
+    const pools = section('Machines', { id: 'machines', what: 'the machines', count: c.machines.length, icon: 'machine' });
     if (!c.pools.length) pools.body.appendChild(el('div', 'faint small', 'The topology names no pools, and no machine carries this cluster’s id.'));
     for (const p of c.pools) pools.body.appendChild(poolRow(p, onMachine));
     root.appendChild(pools.root);
 
-    const place = card('Network and placement', { icon: 'network' });
+    const place = section('Network and placement', { id: 'network', what: 'the network and placement', icon: 'network' });
     place.body.appendChild(networkBox(c.network, c.networkName, c.networkGuessed));
     const where = el('div', 'placement');
     for (const p of c.providers) where.appendChild(button(`${p.label} · ${p.type}`, 'chipbtn', 'provider', () => openInApp(p.ref)));
@@ -222,12 +222,12 @@ export function clusterDetail(c: ClusterView, ctx: DetailContext): HTMLElement {
 
     if (ctx.compact) return root;
 
-    const conds = card('Conditions', { icon: 'pulse' });
+    const conds = section('Conditions', { id: 'conditions', what: 'the conditions', count: c.conditions.length || undefined, icon: 'pulse' });
     conds.body.appendChild(conditionList(c.conditions, now));
     root.appendChild(conds.root);
 
     if (c.endpoints.length) {
-        const ep = card('Endpoints', { icon: 'link' });
+        const ep = section('Endpoints', { id: 'endpoints', what: 'the endpoints', count: c.endpoints.length, icon: 'link' });
         ep.body.appendChild(kv(c.endpoints.map((e) => [e.name || 'endpoint', /^https?:\/\//i.test(e.address) ? linkButton(e.address, () => openUrl(e.address)) : el('code', '', e.address)])));
         root.appendChild(ep.root);
     }
@@ -235,14 +235,14 @@ export function clusterDetail(c: ClusterView, ctx: DetailContext): HTMLElement {
     const reported = c.obj.status?.state?.versions ?? [];
     const res = resourceMeters(c);
     if (reported.length || res) {
-        const info = card('Reported by the cluster', { icon: 'info' });
+        const info = section('Reported by the cluster', { id: 'reported', what: 'what the cluster reports', icon: 'info' });
         if (res) info.body.appendChild(res);
         if (reported.length) info.body.appendChild(kv(reported.map((v) => [v.name ?? '', `${v.version ?? ''}${v.branch ? ' (' + v.branch + ')' : ''}`])));
         root.appendChild(info.root);
     }
 
     if (c.etcdBackups.length || c.vips.length || c.storages.length) {
-        const around = card('Around it', { icon: 'shield' });
+        const around = section('Around it', { id: 'around', what: 'the backups, VIPs and storage', count: c.etcdBackups.length + c.vips.length + c.storages.length, icon: 'shield' });
         for (const b of c.etcdBackups) {
             const st = b.status ?? {};
             around.body.appendChild(
@@ -282,8 +282,9 @@ export function clusterDetail(c: ClusterView, ctx: DetailContext): HTMLElement {
         root.appendChild(around.root);
     }
 
-    const ev = card('Events', { icon: 'clock' });
-    ev.body.appendChild(eventList(ctx.events ? eventsFor(ctx.events, 'KubernetesCluster', c.namespace, c.name) : null, now));
+    const events = ctx.events ? eventsFor(ctx.events, 'KubernetesCluster', c.namespace, c.name) : null;
+    const ev = section('Events', { id: 'events', what: 'the events', count: events?.length || undefined, icon: 'clock' });
+    ev.body.appendChild(eventList(events, now));
     root.appendChild(ev.root);
     return root;
 }
@@ -329,7 +330,7 @@ export function machineDetail(m: MachineView, ctx: DetailContext): HTMLElement {
     if (m.issues.length) root.appendChild(issueList(m.issues, { showSubject: false, now }));
 
     // The machine and where it lives
-    const facts = card('Machine', { icon: 'machine' });
+    const facts = section('Machine', { id: 'machine', what: 'the machine', icon: 'machine' });
     const cls = m.machineClass?.spec;
     facts.body.appendChild(
         kv([
@@ -357,7 +358,7 @@ export function machineDetail(m: MachineView, ctx: DetailContext): HTMLElement {
     root.appendChild(facts.root);
 
     // Its VM
-    const vmCard = card('Virtual machine', { icon: 'vm' });
+    const vmCard = section('Virtual machine', { id: 'vm', what: 'the virtual machine', icon: 'vm' });
     if (m.vm) {
         const vmi = m.vmi?.status;
         vmCard.body.appendChild(
@@ -388,7 +389,7 @@ export function machineDetail(m: MachineView, ctx: DetailContext): HTMLElement {
     root.appendChild(vmCard.root);
 
     // Addresses and network
-    const net = card('Network', { icon: 'ip' });
+    const net = section('Network', { id: 'network', what: 'the addresses and network', icon: 'ip' });
     if (m.ips.length) net.body.appendChild(add(el('div', 'ips'), ...m.ips.map((ip) => el('code', 'ip', ip))));
     const nc = m.networkConfiguration;
     if (nc) {
@@ -443,7 +444,7 @@ export function machineDetail(m: MachineView, ctx: DetailContext): HTMLElement {
     const disks = st.disks ?? [];
     const specDisks = m.obj.spec?.disks ?? [];
     if (disks.length || specDisks.length) {
-        const d = card('Disks', { icon: 'disk' });
+        const d = section('Disks', { id: 'disks', what: 'the disks', count: disks.length || specDisks.length, icon: 'disk' });
         const t = el('table', 'tbl small');
         add(t, add(el('tr'), el('th', '', 'Disk'), el('th', '', 'Size'), el('th', '', 'Type'), el('th', '', 'Volume'), el('th', '', 'Used')));
         if (disks.length) {
@@ -458,11 +459,10 @@ export function machineDetail(m: MachineView, ctx: DetailContext): HTMLElement {
         root.appendChild(d.root);
     }
 
-    const conds = card('Conditions', { icon: 'pulse' });
+    const conds = section('Conditions', { id: 'conditions', what: 'the conditions', count: st.conditions?.length || undefined, icon: 'pulse' });
     conds.body.appendChild(conditionList(st.conditions, now));
     root.appendChild(conds.root);
 
-    const ev = card('Events', { icon: 'clock' });
     const events = ctx.events
         ? [
               ...eventsFor(ctx.events, 'Machine', m.namespace, m.name),
@@ -470,6 +470,7 @@ export function machineDetail(m: MachineView, ctx: DetailContext): HTMLElement {
               ...(m.vmi ? eventsFor(ctx.events, 'VirtualMachineInstance', m.vmi.metadata.namespace ?? '', m.vmi.metadata.name) : []),
           ]
         : null;
+    const ev = section('Events', { id: 'events', what: 'the events', count: events?.length || undefined, icon: 'clock' });
     ev.body.appendChild(eventList(events, now));
     root.appendChild(ev.root);
     return root;

@@ -30,8 +30,12 @@ start('machines', (ctx, root) => {
         table: readTable(hash, 'health', false),
         sel: hash.sel ?? '',
     };
+    // A cluster asked for before the model loaded: filter by its name once it has.
+    let pendingCluster = '';
     // An address from before the table filtered by column.
     if (hash.cluster && !state.table.filters.cluster) state.table.filters.cluster = hash.cluster;
+    // An address that carried a cluster id in place of its name.
+    if (state.table.filters.cluster?.startsWith('cluster:')) pendingCluster = state.table.filters.cluster;
     let model: Model | null = null;
     let events: KubeEvent[] | null = null;
 
@@ -46,6 +50,10 @@ start('machines', (ctx, root) => {
     liveModel({
         onModel: (m) => {
             model = m;
+            if (pendingCluster) {
+                filterByCluster(pendingCluster);
+                save();
+            }
             redraw();
             redrawDrawer();
         },
@@ -57,15 +65,25 @@ start('machines', (ctx, root) => {
     void takeFocus('machines').then((id) => {
         if (!id) return;
         if (id.startsWith('cluster=')) {
-            const clusterId = id.slice('cluster='.length);
-            const cluster = model?.clusters.find((c) => c.id === clusterId);
-            state.table.filters.cluster = cluster?.name ?? clusterId;
+            filterByCluster(id.slice('cluster='.length));
             state.sel = '';
         } else state.sel = id;
         save();
         redraw();
         redrawDrawer();
     });
+
+    function filterByCluster(clusterId: string): void {
+        const cluster = model?.clusters.find((c) => c.id === clusterId);
+        if (cluster) {
+            state.table.filters.cluster = cluster.name;
+            pendingCluster = '';
+        } else if (model) {
+            // Not a known cluster: show the name part of the id rather than the id itself.
+            state.table.filters.cluster = clusterId.replace(/^cluster:/, '').split('/').pop() ?? clusterId;
+            pendingCluster = '';
+        } else pendingCluster = clusterId;
+    }
 
     function save(): void {
         writeHash({

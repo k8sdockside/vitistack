@@ -10,6 +10,7 @@ import { kubeText, talosText, type Version } from '../model/version';
 import { add, chip, el, icon, svg, svgText, type Child } from './dom';
 import { ago, timeOf } from './format';
 import type { IconName } from './icons';
+import { sdk } from './page';
 
 export const TONE_COLOUR: Record<Tone, string> = {
     ok: 'var(--c-ok)',
@@ -277,6 +278,22 @@ export function card(title: string, opts: { icon?: IconName; extra?: Child | Chi
     const body = el('div', 'card-body');
     add(root, head, body);
     return { root, body };
+}
+
+/**
+ * A titled block that folds away, as the app's own detail sections do -- the
+ * bridge's ui.section, the fold remembered by `id`. On an app older than
+ * 0.1.35, which has no ui.section, it is a card() with the same title.
+ */
+export function section(title: string, opts: { id: string; what: string; count?: number; icon?: IconName; actions?: Child[] }): { root: HTMLElement; body: HTMLElement } {
+    const ui = sdk.ui;
+    if (!ui) {
+        const extra = [opts.count === undefined ? null : el('span', 'faint small', String(opts.count)), ...(opts.actions ?? [])];
+        return card(title, { icon: opts.icon, extra });
+    }
+    const sec = ui.section({ id: opts.id, title, count: opts.count, what: opts.what });
+    add(sec.actions, ...(opts.actions ?? []));
+    return { root: sec.root, body: sec.body };
 }
 
 export function empty(text: string, sub?: string, iconName: IconName = 'info'): HTMLElement {

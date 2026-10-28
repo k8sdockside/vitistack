@@ -3,7 +3,7 @@
     "id": "vitistack",
     "name": "Vitistack",
     "version": "1.0.0",
-    "minAppVersion": "0.1.9",
+    "minAppVersion": "0.1.36",
     "tagline": "a supervisor cluster -- networks, clusters, machines and their VMs -- as one picture",
     "icon": "layers",
     "logo": "logo.svg",

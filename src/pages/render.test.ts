@@ -10,6 +10,35 @@ import { KIND, type KindKey } from '../model/kinds';
 import { FIELD } from '../model/snapshot';
 
 let stored: Record<string, unknown> = {};
+/** What the page is drawn for: null on a page, an object on a panel. */
+let object: { kind: string; namespace: string; name: string } | null = null;
+
+/** Enough of the app's ui.section to see which blocks a panel draws, and fold one. */
+function section(opts: { id?: string; title: string; count?: number | string }) {
+    const root = document.createElement('section');
+    root.className = 'k8sd-section';
+    root.dataset.section = opts.id ?? opts.title;
+    const head = document.createElement('h3');
+    head.textContent = `${opts.title}${opts.count === undefined ? '' : ' ' + opts.count}`;
+    const actions = document.createElement('div');
+    const body = document.createElement('div');
+    body.className = 'k8sd-section-body';
+    root.append(head, actions, body);
+    let folded = false;
+    return {
+        root,
+        body,
+        actions,
+        setTitle: () => {},
+        setCount: () => {},
+        isFolded: () => folded,
+        setFolded: (f: boolean) => {
+            folded = f;
+            root.classList.toggle('k8sd-folded', f);
+        },
+        onToggle: () => () => {},
+    };
+}
 
 function bridge() {
     const snap = fixtureSnapshot();
@@ -18,7 +47,7 @@ function bridge() {
         if (snap.status[key]?.state === 'ok') lists.set(KIND[key], (snap as unknown as Record<string, unknown[]>)[field] ?? []);
     }
     return {
-        ready: async () => ({ pluginId: 'vitistack', viewId: '', sectionId: '', object: null, contextId: 't', contextName: 't', readable: [], write: true, actions: [], theme: { id: '', base: 'dark' as const, tokens: {} } }),
+        ready: async () => ({ pluginId: 'vitistack', viewId: '', sectionId: object ? 's' : '', object, contextId: 't', contextName: 't', readable: [], write: true, actions: [], theme: { id: '', base: 'dark' as const, tokens: {} } }),
         summary: async () => ({ pluginId: 'vitistack', installed: true, checked: true, requirements: [], cards: [], error: '' }),
         list: async ({ kind }: { kind: string }) => {
             if (kind === 'events') return [];
@@ -43,6 +72,7 @@ function bridge() {
         openUrl: async () => null,
         patch: async () => null,
         on: () => () => {},
+        ui: { section },
     };
 }
 
@@ -69,6 +99,7 @@ const rowCount = (): number => document.querySelectorAll('.dtable tbody tr.click
 
 beforeEach(() => {
     stored = {};
+    object = null;
     vi.stubGlobal('k8sdockside', bridge());
 });
 
@@ -154,5 +185,34 @@ describe('network', () => {
         await settle();
         expect(rowCount()).toBe(0);
         expect(document.body.textContent).toContain('No network namespace matches');
+    });
+});
+
+describe('panels', () => {
+    const blocks = (): string[] => [...document.querySelectorAll<HTMLElement>('.k8sd-section')].map((n) => n.dataset.section ?? '');
+
+    it('draws a cluster’s blocks as folding sections', async () => {
+        object = { kind: KIND.cluster, namespace: 'tenant-a', name: 'prod-1' };
+        await run('./cluster-panel.js');
+        expect(document.querySelector('.panel-bar')).not.toBe(null);
+        expect(blocks()).toEqual(['upgrades', 'machines', 'network']);
+        expect(document.querySelector('[data-section="machines"] h3')?.textContent).toMatch(/^Machines \d+$/);
+        expect(document.querySelector('[data-section="machines"] .pool')).not.toBe(null);
+        expect(document.querySelector('.card')).toBe(null);
+    });
+
+    it('draws a machine’s blocks as folding sections', async () => {
+        object = { kind: KIND.machine, namespace: 'tenant-a', name: 'prod-1-cp-0' };
+        await run('./machine-panel.js');
+        expect(blocks()).toEqual(['machine', 'vm', 'network']);
+        expect(document.querySelector('[data-section="network"] .ip')?.textContent).toBe('10.0.2.10');
+    });
+
+    it('falls back to cards on an app without ui.section', async () => {
+        vi.stubGlobal('k8sdockside', { ...bridge(), ui: undefined });
+        object = { kind: KIND.cluster, namespace: 'tenant-a', name: 'prod-1' };
+        await run('./cluster-panel.js');
+        expect(blocks()).toEqual([]);
+        expect([...document.querySelectorAll('.card-head h2')].map((n) => n.textContent)).toEqual(['Upgrades', 'Machines', 'Network and placement']);
     });
 });

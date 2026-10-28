@@ -1992,6 +1992,19 @@ button.mcell:hover {
     padding-top: 9px;
 }
 
+/* The detail's blocks as the bridge's folding sections (ui.section): the
+   detail's own gap spaces them, and their contents keep the card's rhythm. */
+.detail > .k8sd-section {
+    margin: 0;
+    min-width: 0;
+}
+
+.detail > .k8sd-section:not(.k8sd-folded) > .k8sd-section-body {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
 /* ----- upgrades: the card ---------------------------------------------------------------------- */
 
 .upcard {
